@@ -114,7 +114,7 @@ export default function TestDriverFlowPage() {
           <CardHeader>
             <CardTitle className="text-2xl">Driver Flow Test Suite</CardTitle>
             <p className="text-muted-foreground">
-              Comprehensive testing for the driver order matching system with location-based filtering and rejection tracking modules.
+              Comprehensive testing for the driver order matching system with location-based filtering and rejection tracking.
             </p>
           </CardHeader>
           <CardContent>
