@@ -74,10 +74,14 @@ export function storeLicenseStatus(status: LicenseStatus): void {
 // Verify license with admin panel
 export async function verifyLicense(licenseKey: string, domain?: string): Promise<LicenseVerificationResponse> {
   const currentDomain = domain || getCurrentDomain();
+  const url = `${LICENSE_CONFIG.ADMIN_PANEL_URL}${LICENSE_CONFIG.VERIFICATION_ENDPOINT}`;
+  
+  console.log('Attempting license verification:', { url, currentDomain, licenseKey: licenseKey.substring(0, 10) + '...' });
   
   try {
-    const response = await fetch(`${LICENSE_CONFIG.ADMIN_PANEL_URL}${LICENSE_CONFIG.VERIFICATION_ENDPOINT}`, {
+    const response = await fetch(url, {
       method: 'POST',
+      mode: 'cors',
       headers: {
         'Content-Type': 'application/json',
       },
@@ -110,9 +114,14 @@ export async function verifyLicense(licenseKey: string, domain?: string): Promis
     return data;
   } catch (error) {
     console.error('License verification error:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      name: error instanceof Error ? error.name : 'Unknown',
+      stack: error instanceof Error ? error.stack : 'No stack trace'
+    });
     return {
       valid: false,
-      error: 'Failed to connect to license server'
+      error: `Failed to connect to license server: ${error instanceof Error ? error.message : 'Unknown error'}`
     };
   }
 }
@@ -120,11 +129,15 @@ export async function verifyLicense(licenseKey: string, domain?: string): Promis
 // Quick license check (lighter version)
 export async function checkLicenseStatus(licenseKey: string, domain?: string): Promise<LicenseVerificationResponse> {
   const currentDomain = domain || getCurrentDomain();
+  const url = `${LICENSE_CONFIG.ADMIN_PANEL_URL}${LICENSE_CONFIG.CHECK_ENDPOINT}?license=${encodeURIComponent(licenseKey)}&domain=${encodeURIComponent(currentDomain)}`;
+  
+  console.log('Attempting license status check:', { url, currentDomain });
   
   try {
-    const response = await fetch(
-      `${LICENSE_CONFIG.ADMIN_PANEL_URL}${LICENSE_CONFIG.CHECK_ENDPOINT}?license=${encodeURIComponent(licenseKey)}&domain=${encodeURIComponent(currentDomain)}`
-    );
+    const response = await fetch(url, {
+      method: 'GET',
+      mode: 'cors'
+    });
 
     if (!response.ok) {
       console.error('License check failed with status:', response.status);
@@ -147,9 +160,14 @@ export async function checkLicenseStatus(licenseKey: string, domain?: string): P
     return data;
   } catch (error) {
     console.error('License check error:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      name: error instanceof Error ? error.name : 'Unknown',
+      stack: error instanceof Error ? error.stack : 'No stack trace'
+    });
     return {
       valid: false,
-      error: 'Failed to connect to license server'
+      error: `Failed to connect to license server: ${error instanceof Error ? error.message : 'Unknown error'}`
     };
   }
 }
