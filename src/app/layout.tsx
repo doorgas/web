@@ -9,6 +9,7 @@ import { ChatProvider } from "@/contexts/ChatContext"
 import { ThemeProvider } from "@/components/providers/ThemeProvider"
 import LicenseGuard from "@/components/LicenseGuard"
 import RealtimeLicenseCheck from "@/components/RealtimeLicenseCheck"
+import DomainVerificationMonitor from "@/components/DomainVerificationMonitor"
 
 export const metadata: Metadata = {
   title: "Store name",
@@ -28,13 +29,15 @@ export default function RootLayout({
             <TooltipProvider>
               <CartProvider>
                 <ChatProvider>
-                  <LicenseGuard>
-                    <RealtimeLicenseCheck>
-                      <Toaster />
-                      <Sonner />
-                      {children}
-                    </RealtimeLicenseCheck>
-                  </LicenseGuard>
+                  <DomainVerificationMonitor checkInterval={30000}>
+                    <LicenseGuard>
+                      <RealtimeLicenseCheck>
+                        <Toaster />
+                        <Sonner />
+                        {children}
+                      </RealtimeLicenseCheck>
+                    </LicenseGuard>
+                  </DomainVerificationMonitor>
                 </ChatProvider>
               </CartProvider>
             </TooltipProvider>

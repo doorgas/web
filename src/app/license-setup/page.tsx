@@ -23,6 +23,12 @@ export default function LicenseSetupPage() {
     setCurrentDomain(getCurrentDomain());
     // Automatically test connection when page loads
     testConnection();
+    
+    // Check if redirected here due to domain verification failure
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('error') === 'domain_not_found') {
+      setError('This domain is not registered in the admin panel. Please contact your administrator to register this domain as a SAAS client.');
+    }
   }, []);
 
   const testConnection = async () => {
