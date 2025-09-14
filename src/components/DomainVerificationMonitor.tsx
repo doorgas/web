@@ -73,8 +73,66 @@ export default function DomainVerificationMonitor({
       const result: DomainCheckResult = await response.json();
       setLastCheckTime(Date.now());
 
-      if (result.success && result.result?.exists) {
-        console.log('Domain verification: PASSED', result.result);
+      if (result.success && result.result?.exists && result.result.client) {
+        const client = result.result.client;
+        
+        // Check client status
+        if (client.status !== 'active') {
+          console.error('Domain verification: FAILED - Client status is not active:', client.status);
+          setDomainStatus('invalid');
+          
+          // Clear cached license data
+          localStorage.removeItem('saas_license_status');
+          sessionStorage.removeItem('saas_license_status');
+          document.cookie = 'license_key=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          
+          // Redirect with status error
+          router.push(`/license-setup?error=client_status&status=${client.status}`);
+          return;
+        }
+        
+        // Check subscription status
+        if (client.subscriptionStatus !== 'active') {
+          console.error('Domain verification: FAILED - Subscription status is not active:', client.subscriptionStatus);
+          setDomainStatus('invalid');
+          
+          // Clear cached license data
+          localStorage.removeItem('saas_license_status');
+          sessionStorage.removeItem('saas_license_status');
+          document.cookie = 'license_key=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          
+          // Redirect with subscription status error
+          router.push(`/license-setup?error=subscription_status&status=${client.subscriptionStatus}`);
+          return;
+        }
+        
+        // Check subscription expiry date
+        if (client.subscriptionEndDate) {
+          const expiryDate = new Date(client.subscriptionEndDate);
+          const now = new Date();
+          
+          if (now > expiryDate) {
+            console.error('Domain verification: FAILED - Subscription expired:', client.subscriptionEndDate);
+            setDomainStatus('invalid');
+            
+            // Clear cached license data
+            localStorage.removeItem('saas_license_status');
+            sessionStorage.removeItem('saas_license_status');
+            document.cookie = 'license_key=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+            
+            // Redirect with subscription expired error
+            router.push(`/license-setup?error=subscription_expired&expiry=${client.subscriptionEndDate}`);
+            return;
+          }
+        }
+        
+        // All checks passed
+        console.log('Domain verification: PASSED - All checks successful', {
+          domain: result.result.domain,
+          status: client.status,
+          subscriptionStatus: client.subscriptionStatus,
+          subscriptionEndDate: client.subscriptionEndDate
+        });
         setDomainStatus('valid');
       } else {
         console.error('Domain verification: FAILED - Domain not found in admin database', result);
@@ -187,12 +245,12 @@ export default function DomainVerificationMonitor({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
         </div>
-        <h2 className="text-xl font-semibold text-red-800 mb-2">Domain Not Registered</h2>
+        <h2 className="text-xl font-semibold text-red-800 mb-2">Access Denied</h2>
         <p className="text-red-600 mb-4">
-          This domain is not registered in the admin panel as a SAAS client.
+          Your domain access has been restricted. This could be due to domain registration, account status, or subscription issues.
         </p>
         <p className="text-sm text-red-500">
-          Redirecting to license setup...
+          Redirecting to license setup for more information...
         </p>
       </div>
     </div>

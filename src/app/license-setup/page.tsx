@@ -26,8 +26,19 @@ export default function LicenseSetupPage() {
     
     // Check if redirected here due to domain verification failure
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('error') === 'domain_not_found') {
+    const errorType = urlParams.get('error');
+    const status = urlParams.get('status');
+    const expiry = urlParams.get('expiry');
+    
+    if (errorType === 'domain_not_found') {
       setError('This domain is not registered in the admin panel. Please contact your administrator to register this domain as a SAAS client.');
+    } else if (errorType === 'client_status') {
+      setError(`Your SAAS client account status is "${status}" and not active. Please contact your administrator to activate your account.`);
+    } else if (errorType === 'subscription_status') {
+      setError(`Your subscription status is "${status}" and not active. Please contact your administrator to renew your subscription.`);
+    } else if (errorType === 'subscription_expired') {
+      const expiryDate = expiry ? new Date(expiry).toLocaleDateString() : 'unknown';
+      setError(`Your subscription expired on ${expiryDate}. Please contact your administrator to renew your subscription.`);
     }
   }, []);
 
@@ -257,6 +268,22 @@ export default function LicenseSetupPage() {
                     <a href="/test-admin-connection" className="underline hover:no-underline">
                       Use advanced connection testing tool
                     </a>
+                  </div>
+                </>
+              )}
+              {error.includes('status is') && (
+                <>
+                  <div className="flex items-center gap-2 text-orange-600">
+                    <div className="w-1.5 h-1.5 bg-orange-400 rounded-full"></div>
+                    <span>Account status issue - contact administrator</span>
+                  </div>
+                </>
+              )}
+              {error.includes('subscription') && (
+                <>
+                  <div className="flex items-center gap-2 text-purple-600">
+                    <div className="w-1.5 h-1.5 bg-purple-400 rounded-full"></div>
+                    <span>Subscription issue - renewal may be required</span>
                   </div>
                 </>
               )}
