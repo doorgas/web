@@ -94,66 +94,99 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     }
     
     if (!licenseKey) {
+      console.log('No license key found, redirecting to setup');
       return NextResponse.redirect(new URL('/license-setup', req.url));
     }
     
-    // Get current domain
-    const currentDomain = req.headers.get('host') || req.nextUrl.hostname;
+    // Get current domain - normalize it
+    const currentDomain = (req.headers.get('host') || req.nextUrl.hostname).toLowerCase();
     
-    // Quick license verification (we'll implement a lightweight check)
-    const licenseValid = await quickLicenseCheck(licenseKey, currentDomain);
+    console.log('Middleware license check:', { licenseKey: licenseKey.substring(0, 10) + '...', currentDomain });
     
-    if (!licenseValid) {
-      return NextResponse.redirect(new URL('/license-invalid', req.url));
+    // Strict license verification - must pass to continue
+    const licenseResult = await strictLicenseCheck(licenseKey, currentDomain);
+    
+    if (!licenseResult.valid) {
+      console.log('License check failed:', licenseResult.error);
+      
+      // Clear invalid license key from cookie
+      const response = NextResponse.redirect(new URL('/license-invalid', req.url));
+      response.cookies.delete('license_key');
+      
+      return response;
     }
     
+    console.log('License check passed');
     // License is valid, continue
     return null;
   } catch (error) {
     console.error('License check error in middleware:', error);
     
-    // In case of error, allow access but log the issue
-    // You might want to redirect to an error page in production
-    return null;
+    // On error, redirect to license setup - DO NOT ALLOW ACCESS
+    const response = NextResponse.redirect(new URL('/license-setup', req.url));
+    response.cookies.delete('license_key');
+    
+    return response;
   }
 }
 
-async function quickLicenseCheck(licenseKey: string, domain: string): Promise<boolean> {
+async function strictLicenseCheck(licenseKey: string, domain: string): Promise<{valid: boolean, error?: string}> {
   try {
     const adminPanelUrl = process.env.ADMIN_PANEL_URL || 'http://localhost:3000';
+    const url = `${adminPanelUrl}/api/saas/verify-license`;
+    
+    console.log('Making license verification request to:', url);
     
     // Create a timeout promise to handle hanging requests
     const timeoutPromise = new Promise<Response>((_, reject) => {
-      setTimeout(() => reject(new Error('Request timeout')), 3000); // Reduced timeout
+      setTimeout(() => reject(new Error('License server timeout')), 5000);
     });
     
-    const fetchPromise = fetch(
-      `${adminPanelUrl}/api/saas/verify-license?license=${encodeURIComponent(licenseKey)}&domain=${encodeURIComponent(domain)}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    const fetchPromise = fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        licenseKey,
+        domain
+      }),
+    });
     
     const response = await Promise.race([fetchPromise, timeoutPromise]);
     
+    console.log('License verification response status:', response.status);
+    
     if (!response.ok) {
-      console.warn('License verification request failed:', response.status);
-      // For domain authorization errors (403), return false immediately
-      if (response.status === 403) {
-        return false;
+      let errorMessage = `Server error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // Response might not be JSON
       }
-      return false;
+      
+      return {
+        valid: false,
+        error: errorMessage
+      };
     }
     
     const data = await response.json();
-    return data.valid === true;
+    console.log('License verification result:', { valid: data.valid, hasClient: !!data.client });
+    
+    return {
+      valid: data.valid === true,
+      error: data.error
+    };
   } catch (error) {
     console.error('License verification failed:', error);
-    // In case of network error, return false to block access (strict mode)
-    return false;
+    const errorMessage = error instanceof Error ? error.message : 'Network error';
+    
+    return {
+      valid: false,
+      error: `Connection failed: ${errorMessage}`
+    };
   }
 }
 

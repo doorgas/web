@@ -23,8 +23,8 @@ const LICENSE_CONFIG = {
   ADMIN_PANEL_URL: process.env.ADMIN_PANEL_URL || process.env.NEXT_PUBLIC_ADMIN_PANEL_URL || 'http://localhost:3000',
   VERIFICATION_ENDPOINT: '/api/saas/verify-license',
   CHECK_ENDPOINT: '/api/saas/verify-license',
-  VERIFICATION_INTERVAL: 30 * 1000, // 30 seconds
-  GRACE_PERIOD: 7 * 24 * 60 * 60 * 1000, // 7 days
+  VERIFICATION_INTERVAL: 10 * 1000, // 10 seconds - very strict
+  GRACE_PERIOD: 1 * 60 * 1000, // 1 minute grace period - very strict
   STORAGE_KEY: 'saas_license_status',
 };
 

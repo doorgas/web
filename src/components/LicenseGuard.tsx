@@ -10,7 +10,7 @@ interface LicenseGuardProps {
 export default function LicenseGuard({ children }: LicenseGuardProps) {
   // Use the license guard hook with aggressive checking
   useLicenseGuard({
-    checkInterval: 30000, // Check every 30 seconds
+    checkInterval: 10000, // Check every 10 seconds - very aggressive
     redirectOnFailure: true,
     onLicenseInvalid: () => {
       console.warn('License validation failed - redirecting to license page');

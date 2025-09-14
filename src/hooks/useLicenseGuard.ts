@@ -26,48 +26,60 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
       const currentDomain = getCurrentDomain();
       const storedStatus = getStoredLicenseStatus();
       
-      // Force validation if domain has changed or no stored status
-      const shouldForceValidation = !storedStatus || 
-        (typeof window !== 'undefined' && storedStatus.lastVerified && 
-         Date.now() - storedStatus.lastVerified > checkInterval);
-
-      if (shouldForceValidation) {
-        const result = await validateLicense();
-        
-        if (!result.isValid) {
-          console.warn('License validation failed:', result.error);
-          
-          if (onLicenseInvalid) {
-            onLicenseInvalid();
-          }
-          
-          if (redirectOnFailure) {
-            if (result.needsSetup) {
-              router.push('/license-setup');
-            } else {
-              router.push('/license-invalid');
-            }
-          }
-          
-          return false;
-        } else {
-          if (onLicenseValid) {
-            onLicenseValid();
-          }
-          return true;
-        }
-      }
+      console.log('License check - current domain:', currentDomain);
+      console.log('Stored status:', storedStatus ? { 
+        isValid: storedStatus.isValid, 
+        lastVerified: new Date(storedStatus.lastVerified || 0).toISOString(),
+        licenseKey: storedStatus.licenseKey?.substring(0, 10) + '...'
+      } : null);
       
-      return true;
+      // ALWAYS validate - be very strict
+      const result = await validateLicense();
+      
+      if (!result.isValid) {
+        console.warn('License validation failed:', result.error);
+        
+        // Clear invalid license from cookie and localStorage
+        if (typeof window !== 'undefined') {
+          document.cookie = 'license_key=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          localStorage.removeItem('saas_license_status');
+        }
+        
+        if (onLicenseInvalid) {
+          onLicenseInvalid();
+        }
+        
+        if (redirectOnFailure) {
+          if (result.needsSetup) {
+            router.push('/license-setup');
+          } else {
+            router.push('/license-invalid');
+          }
+        }
+        
+        return false;
+      } else {
+        console.log('License validation successful');
+        if (onLicenseValid) {
+          onLicenseValid();
+        }
+        return true;
+      }
     } catch (error) {
       console.error('License check failed:', error);
+      
+      // Clear license on any error - be very strict
+      if (typeof window !== 'undefined') {
+        document.cookie = 'license_key=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+        localStorage.removeItem('saas_license_status');
+      }
       
       if (onLicenseInvalid) {
         onLicenseInvalid();
       }
       
       if (redirectOnFailure) {
-        router.push('/license-invalid');
+        router.push('/license-setup');
       }
       
       return false;
