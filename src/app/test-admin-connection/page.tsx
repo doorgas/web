@@ -12,6 +12,8 @@ export default function TestAdminConnection() {
   const [loading, setLoading] = useState(false);
   const [licenseKey, setLicenseKey] = useState('');
   const [licenseTestResult, setLicenseTestResult] = useState<any>(null);
+  const [domainCheckResult, setDomainCheckResult] = useState<any>(null);
+  const [isDomainChecking, setIsDomainChecking] = useState(false);
 
   const testConnection = async () => {
     setLoading(true);
@@ -204,6 +206,43 @@ export default function TestAdminConnection() {
     }
   };
 
+  const checkDomainInDatabase = async () => {
+    setIsDomainChecking(true);
+    setDomainCheckResult(null);
+
+    try {
+      const currentDomain = window.location.hostname;
+      console.log('Checking if domain exists in admin database:', currentDomain);
+      
+      const response = await fetch('/api/debug/check-domain', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          domain: currentDomain
+        })
+      });
+
+      const result = await response.json();
+      setDomainCheckResult({
+        ...result,
+        timestamp: new Date().toISOString(),
+        checkedDomain: currentDomain
+      });
+    } catch (error) {
+      console.error('Domain check error:', error);
+      setDomainCheckResult({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+        checkedDomain: window.location.hostname
+      });
+    } finally {
+      setIsDomainChecking(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'PASS': return 'text-green-600 bg-green-50';
@@ -270,14 +309,25 @@ export default function TestAdminConnection() {
               </p>
             </div>
 
-            <Button 
-              onClick={testLicenseVerification} 
-              disabled={loading || !adminUrl || !licenseKey.trim()}
-              className="w-full"
-              variant="secondary"
-            >
-              {loading ? 'Testing License...' : 'Test License Verification'}
-            </Button>
+            <div className="space-y-3">
+              <Button 
+                onClick={testLicenseVerification} 
+                disabled={loading || !adminUrl || !licenseKey.trim()}
+                className="w-full"
+                variant="secondary"
+              >
+                {loading ? 'Testing License...' : 'Test License Verification'}
+              </Button>
+
+              <Button 
+                onClick={checkDomainInDatabase} 
+                disabled={isDomainChecking || !adminUrl}
+                className="w-full"
+                variant="outline"
+              >
+                {isDomainChecking ? 'Checking Domain...' : 'Check Domain in Admin Database'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -387,6 +437,143 @@ export default function TestAdminConnection() {
                     <p className="text-sm text-red-600 font-mono">{licenseTestResult.error}</p>
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {domainCheckResult && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Domain Database Check Results</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Checked at: {new Date(domainCheckResult.timestamp).toLocaleString()}
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Domain Found:</span>
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    domainCheckResult.success && domainCheckResult.result?.exists ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'
+                  }`}>
+                    {domainCheckResult.success && domainCheckResult.result?.exists ? 'EXISTS' : 'NOT FOUND'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Checked Domain:</span>
+                  <span className="font-mono text-sm">{domainCheckResult.checkedDomain}</span>
+                </div>
+
+                {domainCheckResult.success && domainCheckResult.result?.exists && domainCheckResult.result.client && (
+                  <div className="bg-green-50 border border-green-200 rounded p-4">
+                    <h4 className="font-medium text-green-800 mb-3">SAAS Client Found</h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="font-medium text-green-700">Company:</span>
+                        <p className="text-green-600">{domainCheckResult.result.client.companyName}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">Contact Email:</span>
+                        <p className="text-green-600">{domainCheckResult.result.client.contactEmail}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">Website Domain:</span>
+                        <p className="text-green-600 font-mono">{domainCheckResult.result.client.websiteDomain}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">Website URL:</span>
+                        <p className="text-green-600">{domainCheckResult.result.client.websiteUrl}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">Status:</span>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          domainCheckResult.result.client.status === 'active' ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'
+                        }`}>
+                          {domainCheckResult.result.client.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">Subscription:</span>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          domainCheckResult.result.client.subscriptionStatus === 'active' ? 'text-green-600 bg-green-100' : 'text-yellow-600 bg-yellow-100'
+                        }`}>
+                          {domainCheckResult.result.client.subscriptionStatus.toUpperCase()}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">Subscription Type:</span>
+                        <p className="text-green-600">{domainCheckResult.result.client.subscriptionType}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">License Key:</span>
+                        <p className="text-green-600 font-mono">{domainCheckResult.result.client.licenseKey}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">Created:</span>
+                        <p className="text-green-600">{new Date(domainCheckResult.result.client.createdAt).toLocaleDateString()}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-green-700">Last Access:</span>
+                        <p className="text-green-600">
+                          {domainCheckResult.result.client.lastAccessDate 
+                            ? new Date(domainCheckResult.result.client.lastAccessDate).toLocaleDateString()
+                            : 'Never'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {domainCheckResult.result.client.subscriptionEndDate && (
+                      <div className="mt-3 pt-3 border-t border-green-200">
+                        <span className="font-medium text-green-700">Subscription Expires:</span>
+                        <p className="text-green-600">
+                          {new Date(domainCheckResult.result.client.subscriptionEndDate).toLocaleDateString()}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="mt-3 pt-3 border-t border-green-200 text-xs text-green-600">
+                      <div className="flex justify-between">
+                        <span>Exact Match: {domainCheckResult.result.exactMatch ? 'Yes' : 'No'}</span>
+                        <span>Total Matches: {domainCheckResult.result.allMatches}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {domainCheckResult.success && !domainCheckResult.result?.exists && (
+                  <div className="bg-red-50 border border-red-200 rounded p-4">
+                    <h4 className="font-medium text-red-800 mb-2">Domain Not Found</h4>
+                    <p className="text-sm text-red-600">
+                      The domain <code className="bg-red-100 px-1 py-0.5 rounded font-mono">{domainCheckResult.checkedDomain}</code> was not found in the admin panel's SAAS clients database.
+                    </p>
+                    <div className="mt-3 text-xs text-red-600">
+                      <p>Possible reasons:</p>
+                      <ul className="list-disc list-inside mt-1 space-y-1">
+                        <li>Domain not registered as a SAAS client</li>
+                        <li>Domain spelling mismatch in admin panel</li>
+                        <li>Client was deleted from the database</li>
+                        <li>Domain registered with different subdomain (www vs non-www)</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                {domainCheckResult.error && (
+                  <div className="bg-red-50 border border-red-200 rounded p-2">
+                    <p className="text-sm text-red-700 font-medium">Error:</p>
+                    <p className="text-sm text-red-600 font-mono">{domainCheckResult.error}</p>
+                  </div>
+                )}
+
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-sm font-medium">Raw Response Data</summary>
+                  <pre className="mt-2 p-2 bg-gray-50 rounded text-xs overflow-auto">
+                    {JSON.stringify(domainCheckResult, null, 2)}
+                  </pre>
+                </details>
               </div>
             </CardContent>
           </Card>

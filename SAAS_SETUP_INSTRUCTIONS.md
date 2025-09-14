@@ -129,10 +129,26 @@ Client Site ──→ Admin Panel
 ## Test URLs
 
 Once deployed, test these URLs (accessible without license verification):
-- `https://client-domain.com/test-admin-connection` - Connection test
+- `https://client-domain.com/test-admin-connection` - Connection test + Domain verification
 - `https://client-domain.com/debug/license-test` - License verification test  
 - `https://client-domain.com/debug/connection-test` - Connection diagnostics
 - `https://client-domain.com/license-setup` - License setup
+
+### Domain Verification Feature
+
+The `/test-admin-connection` page now includes a **Domain Database Check** feature that:
+
+✅ **Checks if the current domain exists in the admin panel's SAAS clients database**
+✅ **Shows complete client information if found** (company, contact, status, subscription, license key)
+✅ **Provides detailed troubleshooting** if domain is not found
+✅ **Supports exact and partial domain matching**
+
+**Usage:**
+1. Visit `/test-admin-connection` 
+2. Click "Check Domain in Admin Database"
+3. View results:
+   - **Domain Found**: Shows complete SAAS client details
+   - **Domain Not Found**: Shows troubleshooting suggestions
 
 **Note**: All debug and test URLs are accessible without authentication or license verification for troubleshooting purposes.
 
