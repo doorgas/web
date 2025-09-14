@@ -93,9 +93,35 @@ export async function verifyLicense(licenseKey: string, domain?: string): Promis
 
     if (!response.ok) {
       console.error('License verification failed with status:', response.status);
+      
+      let errorMessage = `License server responded with status ${response.status}`;
+      
+      // Handle specific error cases
+      if (response.status === 405) {
+        errorMessage = 'License server API endpoint not properly configured (Method Not Allowed)';
+      } else if (response.status === 404) {
+        errorMessage = 'License server API endpoint not found';
+      } else if (response.status === 403) {
+        errorMessage = 'Domain not authorized for this license';
+      } else if (response.status === 401) {
+        errorMessage = 'Invalid license key';
+      } else if (response.status >= 500) {
+        errorMessage = 'License server internal error';
+      }
+      
+      // Try to get detailed error from response
+      try {
+        const errorData = await response.json();
+        if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+      } catch {
+        // Response might not be JSON
+      }
+      
       return {
         valid: false,
-        error: `License server responded with status ${response.status}`
+        error: errorMessage
       };
     }
 
