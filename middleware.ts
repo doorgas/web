@@ -46,13 +46,19 @@ export default withAuth(
 function isPublicRoute(pathname: string): boolean {
   const publicRoutes = [
     '/register',
-    '/verify-otp'
+    '/verify-otp',
+    // Debug and testing routes - accessible without authentication
+    '/debug/license-test',
+    '/debug/connection-test',
+    '/test-admin-connection'
   ]
   
   const publicApiRoutes = [
     '/api/auth/',
     '/api/email/',
-    '/api/register'
+    '/api/register',
+    // Debug API routes - accessible without authentication
+    '/api/debug/'
   ]
   
   // Check exact matches for pages
@@ -75,7 +81,11 @@ function isLicenseExemptRoute(pathname: string): boolean {
     '/api/license/',
     '/api/auth/',
     '/_next/',
-    '/favicon.ico'
+    '/favicon.ico',
+    // Debug and testing routes - allow access without license verification
+    '/debug/',
+    '/test-admin-connection',
+    '/api/debug/'
   ]
   
   return exemptRoutes.some(route => pathname.startsWith(route))
