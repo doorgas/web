@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { validateLicense } from '@/lib/license';
 
 interface RealtimeLicenseCheckProps {
@@ -13,9 +13,29 @@ export default function RealtimeLicenseCheck({ children, skipCheck = false }: Re
   const [isValidating, setIsValidating] = useState(!skipCheck);
   const [isValid, setIsValid] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
+
+  // Pages where real-time license checking should be skipped
+  const shouldSkipLicenseCheck = (): boolean => {
+    if (skipCheck) return true;
+    
+    // Check both pathname and window.location for robustness
+    const currentPath = pathname || (typeof window !== 'undefined' ? window.location.pathname : '');
+    
+    const exemptRoutes = [
+      '/test-admin-connection',
+      '/debug/',
+      '/license-setup',
+      '/license-invalid',
+      '/logout'
+    ];
+    
+    return exemptRoutes.some(route => currentPath.startsWith(route));
+  };
 
   useEffect(() => {
-    if (skipCheck) {
+    if (shouldSkipLicenseCheck()) {
+      console.log('RealtimeLicenseCheck: Skipping license check for', pathname);
       setIsValid(true);
       setIsValidating(false);
       return;
@@ -65,10 +85,10 @@ export default function RealtimeLicenseCheck({ children, skipCheck = false }: Re
     };
 
     performImmediateLicenseCheck();
-  }, [skipCheck, router]);
+  }, [pathname, router]);
 
-  // Show loading state while validating
-  if (isValidating) {
+  // Show loading state while validating (but not for exempt routes)
+  if (isValidating && !shouldSkipLicenseCheck()) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -79,6 +99,6 @@ export default function RealtimeLicenseCheck({ children, skipCheck = false }: Re
     );
   }
 
-  // Only render children if license is valid
-  return isValid ? <>{children}</> : null;
+  // Only render children if license is valid or route is exempt
+  return (isValid || shouldSkipLicenseCheck()) ? <>{children}</> : null;
 }

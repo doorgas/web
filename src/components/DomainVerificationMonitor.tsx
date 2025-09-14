@@ -31,10 +31,14 @@ export default function DomainVerificationMonitor({
   const [lastCheckTime, setLastCheckTime] = useState<number>(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isCheckingRef = useRef(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Pages where domain verification should be skipped
   const shouldSkipDomainCheck = (): boolean => {
     if (skipCheck) return true;
+    
+    // Check both pathname and window.location for robustness
+    const currentPath = pathname || (typeof window !== 'undefined' ? window.location.pathname : '');
     
     const exemptRoutes = [
       '/test-admin-connection',
@@ -44,7 +48,7 @@ export default function DomainVerificationMonitor({
       '/logout'
     ];
     
-    return exemptRoutes.some(route => pathname.startsWith(route));
+    return exemptRoutes.some(route => currentPath.startsWith(route));
   };
 
   const performDomainCheck = async (): Promise<void> => {
@@ -160,7 +164,17 @@ export default function DomainVerificationMonitor({
 
   // Initialize domain check on component mount
   useEffect(() => {
-    if (shouldSkipDomainCheck() || typeof window === 'undefined') {
+    const currentPath = pathname || (typeof window !== 'undefined' ? window.location.pathname : '');
+    const skipCheck = shouldSkipDomainCheck();
+    
+    console.log('DomainVerificationMonitor: Initializing', { 
+      currentPath, 
+      skipCheck, 
+      isServer: typeof window === 'undefined' 
+    });
+    
+    if (skipCheck || typeof window === 'undefined') {
+      console.log('DomainVerificationMonitor: Skipping domain check for', currentPath);
       setIsInitialized(true);
       setDomainStatus('valid');
       return;
@@ -168,11 +182,33 @@ export default function DomainVerificationMonitor({
 
     // Perform initial domain check
     const initializeDomainCheck = async () => {
-      await performDomainCheck();
-      setIsInitialized(true);
+      try {
+        await performDomainCheck();
+      } catch (error) {
+        console.error('DomainVerificationMonitor: Initial check failed', error);
+        // On error, still initialize to prevent infinite loading
+        setDomainStatus('error');
+      } finally {
+        setIsInitialized(true);
+      }
     };
 
     initializeDomainCheck();
+    
+    // Fallback timeout to prevent infinite loading
+    timeoutRef.current = setTimeout(() => {
+      if (!isInitialized) {
+        console.warn('DomainVerificationMonitor: Timeout reached, forcing initialization');
+        setIsInitialized(true);
+        setDomainStatus('error');
+      }
+    }, 10000); // 10 second timeout
+    
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
   }, [pathname]); // Re-run when pathname changes
 
   // Set up interval for periodic domain checks
