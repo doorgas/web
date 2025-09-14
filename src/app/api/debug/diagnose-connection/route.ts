@@ -4,7 +4,8 @@ export async function GET(request: NextRequest) {
   const results = {
     timestamp: new Date().toISOString(),
     adminPanelUrl: process.env.ADMIN_PANEL_URL || 'Not set',
-    tests: [] as any[]
+    tests: [] as any[],
+    summary: {} as any
   };
 
   // Test 1: Basic URL validation
