@@ -1,17 +1,39 @@
 'use client';
 
 import { useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { useLicenseGuard } from '@/hooks/useLicenseGuard';
 
 interface LicenseGuardProps {
   children: React.ReactNode;
 }
 
+// Routes that should be exempt from license checking
+function isLicenseExemptRoute(pathname: string): boolean {
+  const exemptRoutes = [
+    '/license-setup',
+    '/license-invalid',
+    '/register',
+    '/verify-otp',
+    // Debug and testing routes - allow access without license verification
+    '/debug/',
+    '/test-admin-connection'
+  ];
+  
+  return exemptRoutes.some(route => pathname.startsWith(route));
+}
+
 export default function LicenseGuard({ children }: LicenseGuardProps) {
-  // Use the license guard hook with aggressive checking
+  const pathname = usePathname();
+  
+  // Skip license checking for exempt routes
+  const shouldSkipLicenseCheck = isLicenseExemptRoute(pathname);
+  
+  // Only use the license guard hook if not on an exempt route
   useLicenseGuard({
     checkInterval: 10000, // Check every 10 seconds - very aggressive
     redirectOnFailure: true,
+    skipCheck: shouldSkipLicenseCheck, // Add this option
     onLicenseInvalid: () => {
       console.warn('License validation failed - redirecting to license page');
     },

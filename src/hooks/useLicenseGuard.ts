@@ -7,6 +7,7 @@ import { validateLicense, getCurrentDomain, getStoredLicenseStatus } from '@/lib
 interface UseLicenseGuardOptions {
   checkInterval?: number; // in milliseconds, default 30 seconds
   redirectOnFailure?: boolean; // default true
+  skipCheck?: boolean; // skip license checking entirely, default false
   onLicenseInvalid?: () => void;
   onLicenseValid?: () => void;
 }
@@ -15,6 +16,7 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
   const {
     checkInterval = 30000, // 30 seconds
     redirectOnFailure = true,
+    skipCheck = false,
     onLicenseInvalid,
     onLicenseValid
   } = options;
@@ -87,6 +89,12 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
   }, [checkInterval, redirectOnFailure, onLicenseInvalid, onLicenseValid, router]);
 
   useEffect(() => {
+    // Skip all license checking if skipCheck is true
+    if (skipCheck) {
+      console.log('License checking skipped for this route');
+      return;
+    }
+
     // Initial check
     performLicenseCheck();
 
@@ -111,7 +119,7 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [performLicenseCheck, checkInterval]);
+  }, [performLicenseCheck, checkInterval, skipCheck]);
 
   return {
     checkLicense: performLicenseCheck
