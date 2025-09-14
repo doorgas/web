@@ -8,6 +8,7 @@ import { SessionProvider } from "@/components/providers/SessionProvider"
 import { ChatProvider } from "@/contexts/ChatContext"
 import { ThemeProvider } from "@/components/providers/ThemeProvider"
 import LicenseGuard from "@/components/LicenseGuard"
+import RealtimeLicenseCheck from "@/components/RealtimeLicenseCheck"
 
 export const metadata: Metadata = {
   title: "Store name",
@@ -28,9 +29,11 @@ export default function RootLayout({
               <CartProvider>
                 <ChatProvider>
                   <LicenseGuard>
-                    <Toaster />
-                    <Sonner />
-                    {children}
+                    <RealtimeLicenseCheck>
+                      <Toaster />
+                      <Sonner />
+                      {children}
+                    </RealtimeLicenseCheck>
                   </LicenseGuard>
                 </ChatProvider>
               </CartProvider>

@@ -119,9 +119,19 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     if (!licenseResult.valid) {
       console.log('License check failed:', licenseResult.error);
       
+      // Special handling for deleted clients - immediate redirect to setup
+      const isDeletedClient = licenseResult.error?.includes('Invalid license key') || 
+                             licenseResult.error?.includes('License key not found');
+      
       // Clear invalid license key from cookie
-      const response = NextResponse.redirect(new URL('/license-invalid', req.url));
+      const redirectUrl = isDeletedClient ? '/license-setup' : '/license-invalid';
+      const response = NextResponse.redirect(new URL(redirectUrl, req.url));
       response.cookies.delete('license_key');
+      
+      // Add header to indicate deleted client for client-side handling
+      if (isDeletedClient) {
+        response.headers.set('X-License-Status', 'deleted');
+      }
       
       return response;
     }

@@ -23,8 +23,8 @@ const LICENSE_CONFIG = {
   ADMIN_PANEL_URL: process.env.ADMIN_PANEL_URL || process.env.NEXT_PUBLIC_ADMIN_PANEL_URL || 'http://localhost:3000',
   VERIFICATION_ENDPOINT: '/api/saas/verify-license',
   CHECK_ENDPOINT: '/api/saas/verify-license',
-  VERIFICATION_INTERVAL: 10 * 1000, // 10 seconds - very strict
-  GRACE_PERIOD: 1 * 60 * 1000, // 1 minute grace period - very strict
+  VERIFICATION_INTERVAL: 5 * 1000, // 5 seconds - very strict for faster detection
+  GRACE_PERIOD: 10 * 1000, // 10 seconds grace period - minimal for deleted clients
   STORAGE_KEY: 'saas_license_status',
 };
 
@@ -220,12 +220,18 @@ export async function updateLicenseStatus(licenseKey: string): Promise<LicenseSt
   const verificationResult = await verifyLicense(licenseKey);
   const now = Date.now();
   
+  // Special handling for deleted clients - NO grace period for "Invalid license key"
+  const isDeletedClient = verificationResult.error?.includes('Invalid license key') || 
+                          verificationResult.error?.includes('License key not found');
+  
   const status: LicenseStatus = {
     isValid: verificationResult.valid,
     licenseKey,
     lastVerified: now,
     error: verificationResult.error || null,
-    gracePeriodExpiry: verificationResult.valid ? null : now + LICENSE_CONFIG.GRACE_PERIOD
+    // No grace period for deleted clients, minimal grace for other errors
+    gracePeriodExpiry: verificationResult.valid ? null : 
+                      isDeletedClient ? null : now + LICENSE_CONFIG.GRACE_PERIOD
   };
   
   storeLicenseStatus(status);

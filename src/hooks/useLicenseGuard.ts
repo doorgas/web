@@ -14,7 +14,7 @@ interface UseLicenseGuardOptions {
 
 export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
   const {
-    checkInterval = 30000, // 30 seconds
+    checkInterval = 5000, // 5 seconds - much faster for deleted client detection
     redirectOnFailure = true,
     skipCheck = false,
     onLicenseInvalid,
@@ -41,19 +41,33 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
       if (!result.isValid) {
         console.warn('License validation failed:', result.error);
         
-        // Clear invalid license from cookie and localStorage
+        // Immediately clear ALL license data from cookie and localStorage
         if (typeof window !== 'undefined') {
           document.cookie = 'license_key=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
           localStorage.removeItem('saas_license_status');
+          
+          // Force clear any cached license status
+          sessionStorage.removeItem('saas_license_status');
+          sessionStorage.removeItem('license_cache');
         }
+        
+        // Special handling for deleted clients - immediate redirect
+        const isDeletedClient = result.error?.includes('Invalid license key') || 
+                               result.error?.includes('License key not found');
         
         if (onLicenseInvalid) {
           onLicenseInvalid();
         }
         
         if (redirectOnFailure) {
-          if (result.needsSetup) {
-            router.push('/license-setup');
+          if (result.needsSetup || isDeletedClient) {
+            // Force immediate redirect for deleted clients
+            if (isDeletedClient) {
+              console.error('Client deleted from admin panel - immediate access revocation');
+              window.location.href = '/license-invalid';
+            } else {
+              router.push('/license-setup');
+            }
           } else {
             router.push('/license-invalid');
           }
