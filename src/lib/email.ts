@@ -6,7 +6,7 @@ export async function sendTextEmail(to: string, subject: string, text: string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      sender: { name: 'Hassan', email: 'hassan@letsenjoypk.com' },
+      sender: { name: 'No-reply', email: 'info@doorgas.co' },
       to: [{ email: to }],
       subject,
       textContent: text,
@@ -30,7 +30,7 @@ export async function sendWelcomeEmail(to: string, name?: string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      sender: { name: 'Hassan', email: 'hassan@letsenjoypk.com' },
+      sender: { name: 'No-reply', email: 'info@doorgas.co' },
       to: [{ email: to }],
       subject: 'Welcome to the Platform!',
       textContent: `Hello${name ? ` ${name}` : ''}, thanks for signing up!`,
