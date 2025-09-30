@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 
@@ -22,7 +22,8 @@ import { DynamicTitle } from '@/components/DynamicTitle';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { Skeleton } from '@/components/ui/skeleton';
 
-export default function RegisterPage() {
+// Component that uses searchParams - needs to be in Suspense
+function RegisterContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -530,5 +531,43 @@ export default function RegisterPage() {
       <Toaster />
     </div>
     </>
+  );
+}
+
+// Loading component for Suspense fallback
+function RegisterPageLoading() {
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <Header title="Store name" showSearch notifications={2} />
+      <div className="min-h-screen bg-gradient-to-br from-background to-muted flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto w-16 h-16 mb-4">
+              <Skeleton className="w-16 h-16 rounded-full" />
+            </div>
+            <Skeleton className="h-8 w-48 mx-auto mb-2" />
+            <Skeleton className="h-4 w-64 mx-auto" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      <Footer />
+      <MobileNav />
+    </div>
+  );
+}
+
+// Main component with Suspense boundary
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<RegisterPageLoading />}>
+      <RegisterContent />
+    </Suspense>
   );
 }
