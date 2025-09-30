@@ -20,14 +20,34 @@ const pendingRequests = new Map<string, Promise<{valid: boolean, globallyVerifie
 const navigationSessions = new Map<string, { firstAccess: number, allowedUntil: number }>();
 const NAVIGATION_GRACE_PERIOD = 10 * 1000; // 10 seconds grace period for navigation
 
-// Safari-specific handling
+// Browser and device detection
+function isMobile(userAgent: string): boolean {
+  return /iPhone|iPad|iPod|Android|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+}
+
+function isiOS(userAgent: string): boolean {
+  return /iPhone|iPad|iPod/i.test(userAgent);
+}
+
 function isSafari(userAgent: string): boolean {
   return userAgent.includes('Safari') && !userAgent.includes('Chrome') && !userAgent.includes('Chromium');
 }
 
-// Safari needs longer grace periods due to its different timing behavior
+// Mobile browsers need much longer grace periods due to different behaviors
 function getGracePeriodForBrowser(userAgent: string): number {
-  return isSafari(userAgent) ? 15 * 1000 : NAVIGATION_GRACE_PERIOD; // 15 seconds for Safari
+  if (isMobile(userAgent)) {
+    return 60 * 1000; // 60 seconds for mobile browsers (much longer)
+  }
+  if (isSafari(userAgent)) {
+    return 30 * 1000; // 30 seconds for desktop Safari
+  }
+  return NAVIGATION_GRACE_PERIOD; // 10 seconds for other desktop browsers
+}
+
+// Check if we should skip license checks entirely for this browser/device
+function shouldSkipLicenseCheckForBrowser(userAgent: string): boolean {
+  // For mobile browsers, be very conservative and skip checks for longer periods
+  return isMobile(userAgent) || isiOS(userAgent);
 }
 
 export default withAuth(
@@ -125,10 +145,14 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     const currentDomain = (req.headers.get('host') || req.nextUrl.hostname).toLowerCase();
     const userAgent = req.headers.get('user-agent') || '';
     const browserGracePeriod = getGracePeriodForBrowser(userAgent);
+    const isMobileBrowser = isMobile(userAgent);
+    const isIOSDevice = isiOS(userAgent);
     
     console.log('Middleware license check by domain:', { 
       currentDomain, 
       pathname: req.nextUrl.pathname,
+      isMobile: isMobileBrowser,
+      isIOS: isIOSDevice,
       isSafari: isSafari(userAgent),
       gracePeriod: browserGracePeriod
     });
@@ -136,7 +160,37 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     // Prevent redirect loops - if already on license-setup, be more lenient
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
     
-    // Check if we're in a navigation grace period (browser-specific)
+    // For mobile browsers and iOS, be VERY conservative - always allow access initially
+    if (isMobileBrowser || isIOSDevice) {
+      const sessionKey = currentDomain + '_mobile';
+      const session = navigationSessions.get(sessionKey);
+      const now = Date.now();
+      
+      // Check if we have a long-term mobile session
+      if (session && now < session.allowedUntil) {
+        console.log('Mobile device within extended grace period, allowing access');
+        return null;
+      }
+      
+      // Create or extend mobile session - very long duration
+      if (!session || now >= session.allowedUntil) {
+        console.log('Creating extended mobile session for navigation');
+        navigationSessions.set(sessionKey, {
+          firstAccess: session?.firstAccess || now,
+          allowedUntil: now + browserGracePeriod // 60 seconds for mobile
+        });
+        
+        // Start very delayed background check for mobile
+        setTimeout(() => {
+          console.log('Starting delayed background license check for mobile');
+          checkLicenseInBackground(currentDomain);
+        }, 2000); // 2 second delay for mobile
+        
+        return null; // Always allow access for mobile initially
+      }
+    }
+    
+    // Desktop browser logic (original logic but more conservative)
     const sessionKey = currentDomain;
     const session = navigationSessions.get(sessionKey);
     const now = Date.now();
@@ -164,17 +218,16 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     
     // If no cache and no grace period, start a grace period for new sessions
     if (!session) {
-      console.log('Starting navigation grace period for new session (Safari-aware)');
+      console.log('Starting navigation grace period for new desktop session');
       navigationSessions.set(sessionKey, {
         firstAccess: now,
         allowedUntil: now + browserGracePeriod
       });
       
-      // For Safari, be even more conservative and skip API call on first navigation
+      // For Safari desktop, be conservative
       if (isSafari(userAgent)) {
-        console.log('Safari detected: allowing immediate access without API call');
-        // Start background license check but don't wait for it or block navigation
-        setTimeout(() => checkLicenseInBackground(currentDomain), 100);
+        console.log('Desktop Safari detected: allowing immediate access');
+        setTimeout(() => checkLicenseInBackground(currentDomain), 500);
         return null;
       }
       
@@ -185,8 +238,8 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
       return null;
     }
     
-    // Grace period expired, need to check license
-    // Check if there's already a pending request for this domain
+    // Grace period expired for desktop, need to check license
+    // But still be very conservative about redirecting
     let licenseResult;
     if (pendingRequests.has(currentDomain)) {
       console.log('Using pending request for domain:', currentDomain);
@@ -219,8 +272,15 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
   } catch (error) {
     console.error('License check error in middleware:', error);
     
-    // Get current domain for error handling
+    // Get current domain and user agent for error handling
     const currentDomain = (req.headers.get('host') || req.nextUrl.hostname).toLowerCase();
+    const userAgent = req.headers.get('user-agent') || '';
+    
+    // For mobile/iOS, NEVER redirect on error - always allow access
+    if (isMobile(userAgent) || isiOS(userAgent)) {
+      console.log('Mobile device error handling: allowing access');
+      return null;
+    }
     
     // On error, only redirect if not already on license-setup and not in grace period
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
