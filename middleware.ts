@@ -20,6 +20,10 @@ const pendingRequests = new Map<string, Promise<{valid: boolean, globallyVerifie
 const navigationSessions = new Map<string, { firstAccess: number, allowedUntil: number }>();
 const NAVIGATION_GRACE_PERIOD = 10 * 1000; // 10 seconds grace period for navigation
 
+// Cookie-based session persistence for page refreshes
+const LICENSE_SESSION_COOKIE = 'license_session';
+const PERSISTENT_SESSION_DURATION = 30 * 60 * 1000; // 30 minutes for persistent sessions
+
 // Browser and device detection
 function isMobile(userAgent: string): boolean {
   return /iPhone|iPad|iPod|Android|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
@@ -48,6 +52,49 @@ function getGracePeriodForBrowser(userAgent: string): number {
 function shouldSkipLicenseCheckForBrowser(userAgent: string): boolean {
   // For mobile browsers, be very conservative and skip checks for longer periods
   return isMobile(userAgent) || isiOS(userAgent);
+}
+
+// Cookie-based persistent session management
+function getPersistentLicenseSession(req: NextRequest, domain: string): { verified: boolean; expiresAt: number } | null {
+  try {
+    const cookieHeader = req.headers.get('cookie');
+    if (!cookieHeader) return null;
+    
+    const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+      const [key, value] = cookie.trim().split('=');
+      acc[key] = value;
+      return acc;
+    }, {} as Record<string, string>);
+    
+    const sessionCookie = cookies[LICENSE_SESSION_COOKIE];
+    if (!sessionCookie) return null;
+    
+    const sessionData = JSON.parse(decodeURIComponent(sessionCookie));
+    
+    // Verify the session is for this domain and still valid
+    if (sessionData.domain === domain && sessionData.expiresAt > Date.now()) {
+      return {
+        verified: sessionData.verified,
+        expiresAt: sessionData.expiresAt
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error reading persistent license session:', error);
+    return null;
+  }
+}
+
+function createPersistentLicenseSession(domain: string): string {
+  const sessionData = {
+    domain: domain,
+    verified: true,
+    expiresAt: Date.now() + PERSISTENT_SESSION_DURATION,
+    timestamp: Date.now()
+  };
+  
+  return encodeURIComponent(JSON.stringify(sessionData));
 }
 
 export default withAuth(
@@ -160,6 +207,13 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     // Prevent redirect loops - if already on license-setup, be more lenient
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
     
+    // FIRST: Check for persistent license session (survives page refreshes)
+    const persistentSession = getPersistentLicenseSession(req, currentDomain);
+    if (persistentSession && persistentSession.verified && persistentSession.expiresAt > Date.now()) {
+      console.log('Valid persistent license session found, allowing access (page refresh safe)');
+      return null; // Allow access based on persistent session
+    }
+    
     // For mobile browsers and iOS, be VERY conservative - always allow access initially
     if (isMobileBrowser || isIOSDevice) {
       const sessionKey = currentDomain + '_mobile';
@@ -205,12 +259,23 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     if (cachedResult) {
       console.log('Using cached license result for domain:', currentDomain);
       
-      // If license is valid, update/create navigation session
+      // If license is valid, update/create navigation session AND set persistent cookie
       if (cachedResult.valid && cachedResult.globallyVerified) {
         navigationSessions.set(sessionKey, {
           firstAccess: session?.firstAccess || now,
           allowedUntil: now + browserGracePeriod
         });
+        
+        // Create persistent session for page refreshes
+        const cookieValue = createPersistentLicenseSession(currentDomain);
+        const response = NextResponse.next();
+        response.cookies.set(LICENSE_SESSION_COOKIE, cookieValue, {
+          maxAge: PERSISTENT_SESSION_DURATION / 1000, // 30 minutes
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax'
+        });
+        return response;
       }
       
       return handleLicenseResult(cachedResult, isOnLicenseSetup, req, true);
@@ -259,12 +324,23 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
       }
     }
     
-    // If license is valid, extend the grace period
+    // If license is valid, extend the grace period AND set persistent cookie
     if (licenseResult.valid && licenseResult.globallyVerified) {
       navigationSessions.set(sessionKey, {
         firstAccess: session?.firstAccess || now,
         allowedUntil: now + browserGracePeriod
       });
+      
+      // Create persistent session for page refreshes
+      const cookieValue = createPersistentLicenseSession(currentDomain);
+      const response = NextResponse.next();
+      response.cookies.set(LICENSE_SESSION_COOKIE, cookieValue, {
+        maxAge: PERSISTENT_SESSION_DURATION / 1000, // 30 minutes
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax'
+      });
+      return response;
     }
     
     return handleLicenseResult(licenseResult, isOnLicenseSetup, req, false);

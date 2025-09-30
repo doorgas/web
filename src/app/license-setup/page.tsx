@@ -147,6 +147,16 @@ export default function LicenseSetupPage() {
           
           if (globalSetupResponse.ok) {
             console.log('License globally activated - will work across all browsers now');
+            
+            // Set persistent session cookie for page refreshes (30 minutes)
+            const sessionData = {
+              domain: currentDomain || window.location.hostname,
+              verified: true,
+              expiresAt: Date.now() + (30 * 60 * 1000), // 30 minutes
+              timestamp: Date.now()
+            };
+            document.cookie = `license_session=${encodeURIComponent(JSON.stringify(sessionData))}; path=/; max-age=${30 * 60}; SameSite=Lax`;
+            
             // Redirect to home page
             router.push('/');
             router.refresh();
