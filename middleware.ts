@@ -2,6 +2,20 @@ import { withAuth } from "next-auth/middleware"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
+// Simple in-memory cache for license checks to prevent flashing
+const licenseCache = new Map<string, { 
+  result: { valid: boolean; globallyVerified?: boolean; error?: string; },
+  timestamp: number,
+  ttl: number
+}>();
+
+// Cache TTL: 30 seconds for valid licenses, 5 seconds for invalid
+const CACHE_TTL_VALID = 30 * 1000;
+const CACHE_TTL_INVALID = 5 * 1000;
+
+// Request deduplication - prevent multiple simultaneous calls for the same domain
+const pendingRequests = new Map<string, Promise<{valid: boolean, globallyVerified?: boolean, error?: string}>>();
+
 export default withAuth(
   async function middleware(req) {
     const { pathname } = req.nextUrl
@@ -101,41 +115,34 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     // Prevent redirect loops - if already on license-setup, be more lenient
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
     
-    // Check license by domain only (no local storage/cookies needed)
-    const licenseResult = await checkLicenseByDomain(currentDomain);
+    // Check cache first to avoid expensive API calls
+    const cachedResult = getCachedLicenseResult(currentDomain);
+    if (cachedResult) {
+      console.log('Using cached license result for domain:', currentDomain);
+      return handleLicenseResult(cachedResult, isOnLicenseSetup, req);
+    }
     
-    if (!licenseResult.valid) {
-      if (isOnLicenseSetup) {
-        // Already on license setup page, don't redirect again
-        console.log('On license setup page, allowing access despite invalid license');
-        return null;
+    // Check if there's already a pending request for this domain
+    let licenseResult;
+    if (pendingRequests.has(currentDomain)) {
+      console.log('Using pending request for domain:', currentDomain);
+      licenseResult = await pendingRequests.get(currentDomain)!;
+    } else {
+      // Create new request and cache it
+      const requestPromise = checkLicenseByDomain(currentDomain);
+      pendingRequests.set(currentDomain, requestPromise);
+      
+      try {
+        licenseResult = await requestPromise;
+        // Cache the result
+        setCachedLicenseResult(currentDomain, licenseResult);
+      } finally {
+        // Clean up pending request
+        pendingRequests.delete(currentDomain);
       }
-      console.log('No license found for domain, redirecting to setup');
-      return NextResponse.redirect(new URL('/license-setup', req.url));
     }
     
-    if (licenseResult.valid && !licenseResult.globallyVerified) {
-      if (isOnLicenseSetup) {
-        // Already on license setup page, allow them to complete the setup
-        console.log('On license setup page, allowing access to complete verification');
-        return null;
-      }
-      console.log('License found but not verified, redirecting to setup');
-      return NextResponse.redirect(new URL('/license-setup', req.url));
-    }
-    
-    if (licenseResult.valid && licenseResult.globallyVerified) {
-      console.log('License check passed for domain:', currentDomain);
-      // License is valid and verified, continue
-      return null;
-    }
-    
-    // Fallback - only redirect if not already on license-setup
-    if (!isOnLicenseSetup) {
-      return NextResponse.redirect(new URL('/license-setup', req.url));
-    }
-    
-    return null;
+    return handleLicenseResult(licenseResult, isOnLicenseSetup, req);
     
   } catch (error) {
     console.error('License check error in middleware:', error);
@@ -150,7 +157,69 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
   }
 }
 
-// Helper function for domain-based license check in middleware
+function getCachedLicenseResult(domain: string): { valid: boolean; globallyVerified?: boolean; error?: string; } | null {
+  const cached = licenseCache.get(domain);
+  if (!cached) return null;
+  
+  const now = Date.now();
+  if (now > cached.timestamp + cached.ttl) {
+    // Cache expired
+    licenseCache.delete(domain);
+    return null;
+  }
+  
+  return cached.result;
+}
+
+function setCachedLicenseResult(domain: string, result: { valid: boolean; globallyVerified?: boolean; error?: string; }) {
+  const ttl = (result.valid && result.globallyVerified) ? CACHE_TTL_VALID : CACHE_TTL_INVALID;
+  licenseCache.set(domain, {
+    result,
+    timestamp: Date.now(),
+    ttl
+  });
+}
+
+function handleLicenseResult(
+  licenseResult: { valid: boolean; globallyVerified?: boolean; error?: string; },
+  isOnLicenseSetup: boolean,
+  req: NextRequest
+): NextResponse | null {
+  if (!licenseResult.valid) {
+    if (isOnLicenseSetup) {
+      // Already on license setup page, don't redirect again
+      console.log('On license setup page, allowing access despite invalid license');
+      return null;
+    }
+    console.log('No license found for domain, redirecting to setup');
+    return NextResponse.redirect(new URL('/license-setup', req.url));
+  }
+  
+  if (licenseResult.valid && !licenseResult.globallyVerified) {
+    if (isOnLicenseSetup) {
+      // Already on license setup page, allow them to complete the setup
+      console.log('On license setup page, allowing access to complete verification');
+      return null;
+    }
+    console.log('License found but not verified, redirecting to setup');
+    return NextResponse.redirect(new URL('/license-setup', req.url));
+  }
+  
+  if (licenseResult.valid && licenseResult.globallyVerified) {
+    console.log('License check passed for domain');
+    // License is valid and verified, continue
+    return null;
+  }
+  
+  // Fallback - only redirect if not already on license-setup
+  if (!isOnLicenseSetup) {
+    return NextResponse.redirect(new URL('/license-setup', req.url));
+  }
+  
+  return null;
+}
+
+// Helper function for domain-based license check in middleware with timeout
 async function checkLicenseByDomain(domain: string): Promise<{valid: boolean, globallyVerified?: boolean, error?: string}> {
   try {
     // Use the new API endpoint that checks by domain
@@ -159,29 +228,44 @@ async function checkLicenseByDomain(domain: string): Promise<{valid: boolean, gl
     
     console.log('Checking license for domain in middleware:', domain);
     
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        domain: domain
-      }),
-    });
+    // Add timeout to prevent long waits
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
     
-    if (!response.ok) {
-      console.log('Domain license check failed with status:', response.status);
-      return { valid: false, error: `No license found for domain` };
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          domain: domain
+        }),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.log('Domain license check failed with status:', response.status);
+        return { valid: false, error: `No license found for domain` };
+      }
+      
+      const data = await response.json();
+      return {
+        valid: data.valid === true,
+        globallyVerified: data.globallyVerified === true,
+        error: data.error
+      };
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      throw fetchError;
     }
-    
-    const data = await response.json();
-    return {
-      valid: data.valid === true,
-      globallyVerified: data.globallyVerified === true,
-      error: data.error
-    };
   } catch (error) {
     console.error('Domain license check failed in middleware:', error);
+    if (error instanceof Error && error.name === 'AbortError') {
+      return { valid: false, error: 'License check timeout' };
+    }
     return { valid: false, error: 'Connection failed' };
   }
 }
