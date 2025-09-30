@@ -194,6 +194,9 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
   } catch (error) {
     console.error('License check error in middleware:', error);
     
+    // Get current domain for error handling
+    const currentDomain = (req.headers.get('host') || req.nextUrl.hostname).toLowerCase();
+    
     // On error, only redirect if not already on license-setup and not in grace period
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
     const session = navigationSessions.get(currentDomain);
