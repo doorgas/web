@@ -35,6 +35,10 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
         licenseKey: storedStatus.licenseKey?.substring(0, 10) + '...'
       } : null);
       
+      // Check if we're on the license setup page to prevent redirect loops
+      const isOnLicenseSetup = typeof window !== 'undefined' && 
+                              window.location.pathname === '/license-setup';
+      
       // ALWAYS validate - be very strict
       const result = await validateLicense();
       
@@ -59,7 +63,7 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
           onLicenseInvalid();
         }
         
-        if (redirectOnFailure) {
+        if (redirectOnFailure && !isOnLicenseSetup) {
           if (result.needsSetup || isDeletedClient) {
             // Force immediate redirect for deleted clients
             if (isDeletedClient) {
@@ -84,6 +88,10 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
     } catch (error) {
       console.error('License check failed:', error);
       
+      // Check if we're on the license setup page to prevent redirect loops
+      const isOnLicenseSetup = typeof window !== 'undefined' && 
+                              window.location.pathname === '/license-setup';
+      
       // Clear license on any error - be very strict
       if (typeof window !== 'undefined') {
         document.cookie = 'license_key=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
@@ -94,7 +102,7 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
         onLicenseInvalid();
       }
       
-      if (redirectOnFailure) {
+      if (redirectOnFailure && !isOnLicenseSetup) {
         router.push('/license-setup');
       }
       

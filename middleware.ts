@@ -96,17 +96,30 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     // Get current domain - normalize it
     const currentDomain = (req.headers.get('host') || req.nextUrl.hostname).toLowerCase();
     
-    console.log('Middleware license check by domain:', { currentDomain });
+    console.log('Middleware license check by domain:', { currentDomain, pathname: req.nextUrl.pathname });
+    
+    // Prevent redirect loops - if already on license-setup, be more lenient
+    const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
     
     // Check license by domain only (no local storage/cookies needed)
     const licenseResult = await checkLicenseByDomain(currentDomain);
     
     if (!licenseResult.valid) {
+      if (isOnLicenseSetup) {
+        // Already on license setup page, don't redirect again
+        console.log('On license setup page, allowing access despite invalid license');
+        return null;
+      }
       console.log('No license found for domain, redirecting to setup');
       return NextResponse.redirect(new URL('/license-setup', req.url));
     }
     
     if (licenseResult.valid && !licenseResult.globallyVerified) {
+      if (isOnLicenseSetup) {
+        // Already on license setup page, allow them to complete the setup
+        console.log('On license setup page, allowing access to complete verification');
+        return null;
+      }
       console.log('License found but not verified, redirecting to setup');
       return NextResponse.redirect(new URL('/license-setup', req.url));
     }
@@ -117,14 +130,23 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
       return null;
     }
     
-    // Fallback - redirect to setup
-    return NextResponse.redirect(new URL('/license-setup', req.url));
+    // Fallback - only redirect if not already on license-setup
+    if (!isOnLicenseSetup) {
+      return NextResponse.redirect(new URL('/license-setup', req.url));
+    }
+    
+    return null;
     
   } catch (error) {
     console.error('License check error in middleware:', error);
     
-    // On error, redirect to license setup - DO NOT ALLOW ACCESS
-    return NextResponse.redirect(new URL('/license-setup', req.url));
+    // On error, only redirect if not already on license-setup to prevent loops
+    const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
+    if (!isOnLicenseSetup) {
+      return NextResponse.redirect(new URL('/license-setup', req.url));
+    }
+    
+    return null;
   }
 }
 

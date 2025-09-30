@@ -31,7 +31,7 @@ export default function LicenseGuard({ children }: LicenseGuardProps) {
   
   // Only use the license guard hook if not on an exempt route
   useLicenseGuard({
-    checkInterval: 10000, // Check every 10 seconds - very aggressive
+    checkInterval: pathname === '/license-setup' ? 30000 : 10000, // Check every 30 seconds on license-setup, 10 seconds elsewhere
     redirectOnFailure: true,
     skipCheck: shouldSkipLicenseCheck, // Add this option
     onLicenseInvalid: () => {

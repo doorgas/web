@@ -25,7 +25,10 @@ export default function LicenseSetupPage() {
     testConnection();
     
     // Check if there's already a globally verified license for this domain
-    checkExistingLicense();
+    // Add a small delay to prevent race conditions with middleware
+    const timer = setTimeout(() => {
+      checkExistingLicense();
+    }, 500);
     
     // Check if redirected here due to domain verification failure
     const urlParams = new URLSearchParams(window.location.search);
@@ -43,6 +46,8 @@ export default function LicenseSetupPage() {
       const expiryDate = expiry ? new Date(expiry).toLocaleDateString() : 'unknown';
       setError(`Your subscription expired on ${expiryDate}. Please contact your administrator to renew your subscription.`);
     }
+
+    return () => clearTimeout(timer);
   }, []);
 
   const checkExistingLicense = async () => {
@@ -61,9 +66,10 @@ export default function LicenseSetupPage() {
         const result = await response.json();
         if (result.valid && result.globallyVerified) {
           // License is already globally verified, redirect to home
+          // Only redirect if we're confident the license is truly valid
           console.log('License already globally verified, redirecting to home');
-          router.push('/');
-          router.refresh();
+          // Use window.location.href for more reliable redirect that bypasses middleware issues
+          window.location.href = '/';
           return;
         }
         if (result.valid && !result.globallyVerified && result.licenseKey) {
@@ -74,6 +80,8 @@ export default function LicenseSetupPage() {
       }
     } catch (error) {
       console.log('No existing license found for domain:', error);
+      // Silently handle error - don't redirect or set error state
+      // This prevents redirect loops when license check fails
     }
   };
 
