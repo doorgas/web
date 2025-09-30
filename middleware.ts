@@ -16,6 +16,10 @@ const CACHE_TTL_INVALID = 5 * 1000;
 // Request deduplication - prevent multiple simultaneous calls for the same domain
 const pendingRequests = new Map<string, Promise<{valid: boolean, globallyVerified?: boolean, error?: string}>>();
 
+// Track navigation sessions to provide grace period
+const navigationSessions = new Map<string, { firstAccess: number, allowedUntil: number }>();
+const NAVIGATION_GRACE_PERIOD = 10 * 1000; // 10 seconds grace period for navigation
+
 export default withAuth(
   async function middleware(req) {
     const { pathname } = req.nextUrl
@@ -115,13 +119,48 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     // Prevent redirect loops - if already on license-setup, be more lenient
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
     
+    // Check if we're in a navigation grace period
+    const sessionKey = currentDomain;
+    const session = navigationSessions.get(sessionKey);
+    const now = Date.now();
+    
+    if (session && now < session.allowedUntil) {
+      console.log('Within navigation grace period, allowing access');
+      return null; // Allow access during grace period
+    }
+    
     // Check cache first to avoid expensive API calls
     const cachedResult = getCachedLicenseResult(currentDomain);
     if (cachedResult) {
       console.log('Using cached license result for domain:', currentDomain);
-      return handleLicenseResult(cachedResult, isOnLicenseSetup, req);
+      
+      // If license is valid, update/create navigation session
+      if (cachedResult.valid && cachedResult.globallyVerified) {
+        navigationSessions.set(sessionKey, {
+          firstAccess: session?.firstAccess || now,
+          allowedUntil: now + NAVIGATION_GRACE_PERIOD
+        });
+      }
+      
+      return handleLicenseResult(cachedResult, isOnLicenseSetup, req, true);
     }
     
+    // If no cache and no grace period, start a grace period for new sessions
+    if (!session) {
+      console.log('Starting navigation grace period for new session');
+      navigationSessions.set(sessionKey, {
+        firstAccess: now,
+        allowedUntil: now + NAVIGATION_GRACE_PERIOD
+      });
+      
+      // Start background license check but don't wait for it
+      checkLicenseInBackground(currentDomain);
+      
+      // Allow access during initial grace period
+      return null;
+    }
+    
+    // Grace period expired, need to check license
     // Check if there's already a pending request for this domain
     let licenseResult;
     if (pendingRequests.has(currentDomain)) {
@@ -142,14 +181,25 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
       }
     }
     
-    return handleLicenseResult(licenseResult, isOnLicenseSetup, req);
+    // If license is valid, extend the grace period
+    if (licenseResult.valid && licenseResult.globallyVerified) {
+      navigationSessions.set(sessionKey, {
+        firstAccess: session?.firstAccess || now,
+        allowedUntil: now + NAVIGATION_GRACE_PERIOD
+      });
+    }
+    
+    return handleLicenseResult(licenseResult, isOnLicenseSetup, req, false);
     
   } catch (error) {
     console.error('License check error in middleware:', error);
     
-    // On error, only redirect if not already on license-setup to prevent loops
+    // On error, only redirect if not already on license-setup and not in grace period
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
-    if (!isOnLicenseSetup) {
+    const session = navigationSessions.get(currentDomain);
+    const inGracePeriod = session && Date.now() < session.allowedUntil;
+    
+    if (!isOnLicenseSetup && !inGracePeriod) {
       return NextResponse.redirect(new URL('/license-setup', req.url));
     }
     
@@ -180,15 +230,28 @@ function setCachedLicenseResult(domain: string, result: { valid: boolean; global
   });
 }
 
+// Background license check that doesn't block navigation
+async function checkLicenseInBackground(domain: string) {
+  try {
+    console.log('Starting background license check for:', domain);
+    const result = await checkLicenseByDomain(domain);
+    setCachedLicenseResult(domain, result);
+    console.log('Background license check completed for:', domain);
+  } catch (error) {
+    console.error('Background license check failed for:', domain, error);
+  }
+}
+
 function handleLicenseResult(
   licenseResult: { valid: boolean; globallyVerified?: boolean; error?: string; },
   isOnLicenseSetup: boolean,
-  req: NextRequest
+  req: NextRequest,
+  allowGracefulDegradation: boolean = false
 ): NextResponse | null {
   if (!licenseResult.valid) {
-    if (isOnLicenseSetup) {
-      // Already on license setup page, don't redirect again
-      console.log('On license setup page, allowing access despite invalid license');
+    if (isOnLicenseSetup || allowGracefulDegradation) {
+      // Already on license setup page or allowing graceful degradation, don't redirect again
+      console.log('Allowing access despite invalid license (setup page or graceful degradation)');
       return null;
     }
     console.log('No license found for domain, redirecting to setup');
@@ -196,9 +259,9 @@ function handleLicenseResult(
   }
   
   if (licenseResult.valid && !licenseResult.globallyVerified) {
-    if (isOnLicenseSetup) {
-      // Already on license setup page, allow them to complete the setup
-      console.log('On license setup page, allowing access to complete verification');
+    if (isOnLicenseSetup || allowGracefulDegradation) {
+      // Already on license setup page or allowing graceful degradation, allow them to complete the setup
+      console.log('Allowing access to complete verification (setup page or graceful degradation)');
       return null;
     }
     console.log('License found but not verified, redirecting to setup');
@@ -211,8 +274,8 @@ function handleLicenseResult(
     return null;
   }
   
-  // Fallback - only redirect if not already on license-setup
-  if (!isOnLicenseSetup) {
+  // Fallback - only redirect if not already on license-setup and not allowing graceful degradation
+  if (!isOnLicenseSetup && !allowGracefulDegradation) {
     return NextResponse.redirect(new URL('/license-setup', req.url));
   }
   
