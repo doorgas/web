@@ -2,6 +2,7 @@
 export interface LicenseVerificationResponse {
   valid: boolean;
   error?: string;
+  globallyVerified?: boolean; // New field to indicate if license is globally verified
   client?: {
     id: string;
     companyName: string;
@@ -249,6 +250,46 @@ export function getLicenseKey(): string | null {
   return stored?.licenseKey || null;
 }
 
+// Check global license status from admin database
+export async function checkGlobalLicenseStatus(licenseKey: string, domain?: string): Promise<LicenseVerificationResponse> {
+  const currentDomain = domain || getCurrentDomain();
+  
+  try {
+    const response = await fetch('/api/license/check-global-status', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        licenseKey,
+        domain: currentDomain
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        valid: false,
+        error: errorData.error || `Server error: ${response.status}`
+      };
+    }
+
+    const data = await response.json();
+    return {
+      valid: data.valid,
+      globallyVerified: data.globallyVerified,
+      client: data.client,
+      error: data.error
+    };
+  } catch (error) {
+    console.error('Global license check error:', error);
+    return {
+      valid: false,
+      error: `Failed to check global license status: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+}
+
 // Main license validation function
 export async function validateLicense(): Promise<{
   isValid: boolean;
@@ -265,6 +306,37 @@ export async function validateLicense(): Promise<{
     };
   }
   
+  // First, check global license status (from admin database)
+  try {
+    const globalStatus = await checkGlobalLicenseStatus(licenseKey);
+    
+    if (globalStatus.valid && globalStatus.globallyVerified) {
+      console.log('License globally verified - allowing access');
+      
+      // Update local storage with global verification status
+      const status: LicenseStatus = {
+        isValid: true,
+        licenseKey,
+        lastVerified: Date.now(),
+        error: null,
+        gracePeriodExpiry: null
+      };
+      storeLicenseStatus(status);
+      
+      return { isValid: true };
+    }
+    
+    if (!globalStatus.valid) {
+      return {
+        isValid: false,
+        error: globalStatus.error || 'License validation failed globally'
+      };
+    }
+  } catch (error) {
+    console.warn('Global license check failed, falling back to regular verification:', error);
+  }
+  
+  // Fallback to regular license verification flow
   const stored = getStoredLicenseStatus();
   
   // If we have a valid stored status and don't need reverification

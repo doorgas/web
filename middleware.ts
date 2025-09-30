@@ -152,6 +152,35 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
 
 async function strictLicenseCheck(licenseKey: string, domain: string): Promise<{valid: boolean, error?: string}> {
   try {
+    // First try to check global license status (local database call)
+    try {
+      const globalCheckUrl = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/license/check-global-status`;
+      
+      const globalResponse = await fetch(globalCheckUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          licenseKey,
+          domain
+        }),
+      });
+
+      if (globalResponse.ok) {
+        const globalData = await globalResponse.json();
+        if (globalData.valid && globalData.globallyVerified) {
+          console.log('License globally verified - middleware allowing access');
+          return {
+            valid: true
+          };
+        }
+      }
+    } catch (globalError) {
+      console.warn('Global license check failed in middleware, falling back to admin panel:', globalError);
+    }
+
+    // Fallback to admin panel verification
     const adminPanelUrl = process.env.ADMIN_PANEL_URL || 'http://localhost:3000';
     const url = `${adminPanelUrl}/api/saas/verify-license`;
     

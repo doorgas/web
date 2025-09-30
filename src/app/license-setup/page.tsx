@@ -102,6 +102,28 @@ export default function LicenseSetupPage() {
         };
         localStorage.setItem('saas_license_status', JSON.stringify(licenseStatus));
         
+        // Set up global license verification
+        try {
+          const globalSetupResponse = await fetch('/api/license/setup-global', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              licenseKey: licenseKey.trim(),
+              domain: currentDomain || window.location.hostname
+            })
+          });
+          
+          if (globalSetupResponse.ok) {
+            console.log('License globally activated - will work across all browsers now');
+          } else {
+            console.warn('Global license setup failed, but local license is still valid');
+          }
+        } catch (globalError) {
+          console.warn('Failed to set up global license:', globalError);
+        }
+        
         // Redirect to home page
         router.push('/');
         router.refresh();

@@ -1150,3 +1150,39 @@ export const driverOrderRejectionsRelations = relations(driverOrderRejections, (
     references: [orders.id],
   }),
 }));
+
+// ========================================
+// SaaS Management Tables (for admin database access)
+// ========================================
+
+// SaaS Clients - Store client information and website details
+export const saasClients = mysqlTable("saas_clients", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  companyName: varchar("company_name", { length: 255 }).notNull(),
+  contactName: varchar("contact_name", { length: 255 }).notNull(),
+  contactEmail: varchar("contact_email", { length: 255 }).notNull().unique(),
+  contactPhone: varchar("contact_phone", { length: 20 }),
+  websiteUrl: varchar("website_url", { length: 500 }).notNull(), // Client's website URL
+  websiteDomain: varchar("website_domain", { length: 255 }).notNull(), // Domain for verification
+  licenseKey: varchar("license_key", { length: 255 }).notNull().unique(), // Auto-generated license
+  status: varchar("status", { length: 20 }).default("active"), // active, suspended, cancelled
+  subscriptionType: varchar("subscription_type", { length: 50 }).default("monthly"), // monthly, yearly, lifetime
+  subscriptionStatus: varchar("subscription_status", { length: 20 }).default("active"), // active, expired, cancelled
+  subscriptionStartDate: datetime("subscription_start_date").default(sql`CURRENT_TIMESTAMP`),
+  subscriptionEndDate: datetime("subscription_end_date"), // NULL for lifetime
+  lastAccessDate: datetime("last_access_date"), // Last time client website was accessed
+  lastVerificationDate: datetime("last_verification_date"), // Last license verification
+  licenseVerified: varchar("license_verified", { length: 10 }).default("no"), // License verification status: 'yes' or 'no'
+  notes: text("notes"), // Admin notes about the client
+  
+  // API federation fields for tenant user access
+  apiBaseUrl: varchar("api_base_url", { length: 255 }).default(""), // Base URL for client API (e.g., https://client-domain.com)
+  authType: varchar("auth_type", { length: 10 }).notNull().default("HMAC"), // HMAC, OAUTH, MTLS
+  apiKey: varchar("api_key", { length: 255 }), // HMAC secret key for API authentication
+  publicKey: text("public_key"), // Public key for JWT/OAuth validation
+  apiStatus: varchar("api_status", { length: 10 }).default("active"), // active, paused
+  lastSeenAt: datetime("last_seen_at"), // Last successful API communication
+  
+  createdAt: datetime("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
