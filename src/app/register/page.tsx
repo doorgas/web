@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 
 import { Header } from '@/components/layout/Header';
@@ -36,8 +36,21 @@ export default function RegisterPage() {
   const [verifying, setVerifying] = useState(false);
   const [success, setSuccess] = useState('');
   const [accountPending, setAccountPending] = useState(false);
+  const [magicToken, setMagicToken] = useState<string | null>(null);
+  const [isMagicLink, setIsMagicLink] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isLoading } = useTheme();
+
+  useEffect(() => {
+    const magic = searchParams.get('magic');
+    if (magic) {
+      setMagicToken(magic);
+      setIsMagicLink(true);
+      // Show a message about magic link usage
+      setSuccess('🎉 You\'re joining via a special invitation link! Your account will be automatically approved.');
+    }
+  }, [searchParams]);
 
   // Helper function to detect if input is email or phone number
   const detectInputType = (input: string): 'email' | 'phone' => {
@@ -90,7 +103,13 @@ export default function RegisterPage() {
       // Both login and register use the same endpoint since they both verify OTP
       const res = await fetch('/api/register', {
         method: 'POST',
-        body: JSON.stringify({ email, name, note, password }),
+        body: JSON.stringify({ 
+          email, 
+          name, 
+          note, 
+          password,
+          magicToken: magicToken 
+        }),
         headers: { 'Content-Type': 'application/json' },
       });
 
@@ -113,6 +132,23 @@ export default function RegisterPage() {
           setSuccess(data.message || 'Account created successfully! Your account is pending approval.');
           setAccountPending(true);
           // Don't attempt to login, just show success message
+          return;
+        }
+        
+        // Handle auto-approved accounts (magic link users)
+        if (data.autoApproved) {
+          setSuccess(data.message || 'Account created and automatically approved!');
+          // Auto-login after verification for auto-approved accounts
+          const login = await signIn('credentials', {
+            email,
+            redirect: false,
+          });
+
+          if (login?.ok) {
+            router.push('/dashboard');
+          } else {
+            setOtpError('Account approved but login failed.');
+          }
           return;
         }
         
@@ -272,7 +308,7 @@ export default function RegisterPage() {
             {accountPending 
               ? 'Account Created!' 
               : step === 'email' 
-                ? (activeTab === 'login' ? 'Welcome Back' : 'Create Account') 
+                ? (activeTab === 'login' ? 'Welcome Back' : (isMagicLink ? '🎉 Special Invitation' : 'Create Account'))
                 : 'Verify Your Email'
             }
           </CardTitle>
@@ -282,7 +318,10 @@ export default function RegisterPage() {
               : step === 'email' 
                 ? (activeTab === 'login' 
                     ? 'Enter your email or phone number to sign in to your account'
-                    : 'Fill in your details to create a new account'
+                    : (isMagicLink 
+                        ? 'You\'re joining with a special invitation link! Your account will be automatically approved upon registration.'
+                        : 'Fill in your details to create a new account'
+                      )
                   )
                 : `We've sent a verification code to ${email}`
             }
@@ -305,7 +344,20 @@ export default function RegisterPage() {
               </div>
             </div>
           ) : step === 'email' && (
-            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'login' | 'register')} className="w-full">
+            <>
+              {isMagicLink && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <div className="flex-shrink-0">
+                      🎉
+                    </div>
+                    <div className="text-sm text-green-800">
+                      <strong>Special Invitation Active!</strong> Your account will be automatically approved.
+                    </div>
+                  </div>
+                </div>
+              )}
+              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'login' | 'register')} className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="register">Register</TabsTrigger>
@@ -406,6 +458,7 @@ export default function RegisterPage() {
               {success && !accountPending && <p style={{ color: 'green' }}>{success}</p>}
               {emailError && <p style={{ color: 'red' }}>{emailError}</p>}
             </Tabs>
+            </>
           )}
 
           {!accountPending && step === 'otp' && (

@@ -4,12 +4,12 @@ import { db } from '@/lib/db';
 import { user } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
-import { verification_tokens } from '@/lib/schema';
+import { verification_tokens, globalMagicLink, magicLinkUsage } from '@/lib/schema';
 import { v4 as uuidv4 } from 'uuid';
 import { sendWelcomeEmail } from '@/lib/email';
 
 export async function POST(req: Request) {
-  const { email, password, name, note } = await req.json();
+  const { email, password, name, note, magicToken } = await req.json();
 
   if (!email || !password) {
     return NextResponse.json({ error: 'Email or phone number and password are required.' }, { status: 400 });
@@ -60,12 +60,29 @@ export async function POST(req: Request) {
     }
   } else {
 
-  // Insert new user with pending status
+  // Check if magic token is provided and valid
+  let isMagicLinkValid = false;
+  let magicLinkData = null;
+  
+  if (magicToken) {
+    const magicLink = await db
+      .select()
+      .from(globalMagicLink)
+      .where(eq(globalMagicLink.token, magicToken))
+      .limit(1);
+    
+    if (magicLink.length > 0 && magicLink[0].isEnabled) {
+      isMagicLinkValid = true;
+      magicLinkData = magicLink[0];
+    }
+  }
+
+  // Insert new user with appropriate status
   const userData: any = {
     id: uuidv4(),
     name: name || null,
     note: note || null,
-    status: 'pending',
+    status: isMagicLinkValid ? 'approved' : 'pending',
   };
 
   // Set email or phone based on input type
@@ -81,10 +98,30 @@ export async function POST(req: Request) {
 
   await db.insert(user).values(userData);
 
-  return NextResponse.json({ 
-    success: true, 
-    message: 'Account created successfully! Your account is pending approval. You will be able to login once an admin approves your account.',
-    requiresApproval: true 
-  });
+  // Track magic link usage if it was used
+  if (isMagicLinkValid && magicLinkData) {
+    await db.insert(magicLinkUsage).values({
+      id: uuidv4(),
+      userId: userData.id,
+      magicLinkId: magicLinkData.id,
+      ipAddress: null, // You can get this from headers if needed
+      userAgent: null, // You can get this from headers if needed
+    });
+  }
+
+  if (isMagicLinkValid) {
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Account created and automatically approved via magic link! You can now login.',
+      requiresApproval: false,
+      autoApproved: true
+    });
+  } else {
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Account created successfully! Your account is pending approval. You will be able to login once an admin approves your account.',
+      requiresApproval: true 
+    });
+  }
   }
 }

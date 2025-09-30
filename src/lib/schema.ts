@@ -88,6 +88,27 @@ export const verification_tokens = mysqlTable(
   })
 );
 
+// Global Magic Link Settings
+export const globalMagicLink = mysqlTable("global_magic_link", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  isEnabled: boolean("is_enabled").default(true),
+  description: text("description"),
+  createdBy: varchar("created_by", { length: 255 }),
+  createdAt: datetime("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Magic Link Usage Tracking
+export const magicLinkUsage = mysqlTable("magic_link_usage", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  userId: varchar("user_id", { length: 255 }).notNull(),
+  magicLinkId: varchar("magic_link_id", { length: 255 }).notNull(),
+  usedAt: datetime("used_at").default(sql`CURRENT_TIMESTAMP`),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+});
+
 // Product Categories
 export const categories = mysqlTable("categories", {
   id: varchar("id", { length: 255 }).primaryKey(),
@@ -642,6 +663,22 @@ export const usersRelations = relations(user, ({ many, one }) => ({
   returns: many(returns),
   loyaltyPoints: one(userLoyaltyPoints),
   loyaltyHistory: many(loyaltyPointsHistory),
+  magicLinkUsage: many(magicLinkUsage),
+}));
+
+export const globalMagicLinkRelations = relations(globalMagicLink, ({ many }) => ({
+  usage: many(magicLinkUsage),
+}));
+
+export const magicLinkUsageRelations = relations(magicLinkUsage, ({ one }) => ({
+  user: one(user, {
+    fields: [magicLinkUsage.userId],
+    references: [user.id],
+  }),
+  magicLink: one(globalMagicLink, {
+    fields: [magicLinkUsage.magicLinkId],
+    references: [globalMagicLink.id],
+  }),
 }));
 
 export const userLoyaltyPointsRelations = relations(userLoyaltyPoints, ({ one, many }) => ({
