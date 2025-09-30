@@ -1,7 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/admin-db';
-import { saasClients } from '@/lib/schema';
-import { eq } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,11 +18,8 @@ export async function POST(request: NextRequest) {
         domain: domain
       },
       environment: {
-        ADMIN_DB_HOST: process.env.ADMIN_DB_HOST || 'NOT_SET',
-        ADMIN_DB_USER: process.env.ADMIN_DB_USER || 'NOT_SET',
-        ADMIN_DB_NAME: process.env.ADMIN_DB_NAME || 'NOT_SET',
-        ADMIN_DB_PASS: process.env.ADMIN_DB_PASS ? 'SET' : 'NOT_SET',
-        ADMIN_PANEL_URL: process.env.ADMIN_PANEL_URL || 'NOT_SET'
+        ADMIN_PANEL_URL: process.env.ADMIN_PANEL_URL || 'NOT_SET',
+        NEXTAUTH_URL: process.env.NEXTAUTH_URL || 'NOT_SET'
       },
       steps: []
     };
@@ -38,149 +32,93 @@ export async function POST(request: NextRequest) {
 
     debugInfo.steps.push('✅ Input validation passed');
 
-    // Test database connection
+    // Test admin panel connection
     try {
-      debugInfo.steps.push('🔍 Testing database connection...');
+      debugInfo.steps.push('🔍 Testing admin panel connection...');
       
-      const testQuery = await adminDb
-        .select({
-          count: saasClients.id
-        })
-        .from(saasClients)
-        .limit(1);
+      const adminPanelUrl = process.env.ADMIN_PANEL_URL || 'https://flower-delivery-final-admin.vercel.app';
+      const testUrl = `${adminPanelUrl}/api/saas/verify-license`;
       
-      debugInfo.steps.push('✅ Database connection successful');
-      debugInfo.dbConnection = 'SUCCESS';
-    } catch (dbError: any) {
-      debugInfo.steps.push('❌ Database connection failed');
-      debugInfo.dbConnection = 'FAILED';
-      debugInfo.dbError = {
-        message: dbError.message,
-        code: dbError.code,
-        errno: dbError.errno
+      const testResponse = await fetch(testUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          licenseKey: 'test-key',
+          domain: 'test-domain.com'
+        }),
+      });
+      
+      debugInfo.steps.push('✅ Admin panel connection successful');
+      debugInfo.adminConnection = 'SUCCESS';
+      debugInfo.adminPanelUrl = adminPanelUrl;
+    } catch (connectionError: any) {
+      debugInfo.steps.push('❌ Admin panel connection failed');
+      debugInfo.adminConnection = 'FAILED';
+      debugInfo.connectionError = {
+        message: connectionError.message
       };
       return NextResponse.json(debugInfo, { status: 500 });
     }
 
-    // Search for license key
+    // Search for license key via admin panel
     try {
-      debugInfo.steps.push('🔍 Searching for license key in database...');
+      debugInfo.steps.push('🔍 Searching for license key via admin panel...');
       
-      const client = await adminDb
-        .select({
-          id: saasClients.id,
-          companyName: saasClients.companyName,
-          status: saasClients.status,
-          subscriptionStatus: saasClients.subscriptionStatus,
-          subscriptionEndDate: saasClients.subscriptionEndDate,
-          websiteDomain: saasClients.websiteDomain,
-          licenseVerified: saasClients.licenseVerified,
-          licenseKey: saasClients.licenseKey
-        })
-        .from(saasClients)
-        .where(eq(saasClients.licenseKey, licenseKey))
-        .limit(1);
+      const adminPanelUrl = process.env.ADMIN_PANEL_URL || 'https://flower-delivery-final-admin.vercel.app';
+      const verifyUrl = `${adminPanelUrl}/api/saas/verify-license`;
+      
+      const response = await fetch(verifyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          licenseKey,
+          domain
+        }),
+      });
 
-      if (client.length === 0) {
-        debugInfo.steps.push('❌ License key not found in database');
+      debugInfo.adminApiResponse = {
+        status: response.status,
+        ok: response.ok
+      };
+
+      if (!response.ok) {
+        debugInfo.steps.push('❌ License key not found or invalid');
         debugInfo.licenseFound = false;
         
-        // Also search for similar license keys (for debugging)
-        const similarLicenses = await adminDb
-          .select({
-            id: saasClients.id,
-            licenseKey: saasClients.licenseKey
-          })
-          .from(saasClients)
-          .limit(5);
+        let errorMessage = 'Unknown error';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // Response might not be JSON
+        }
         
-        debugInfo.availableLicenses = similarLicenses.map(l => ({
-          id: l.id,
-          licenseKey: l.licenseKey?.substring(0, 10) + '...'
-        }));
-        
+        debugInfo.adminError = errorMessage;
         return NextResponse.json(debugInfo, { status: 404 });
       }
 
-      const clientData = client[0];
-      debugInfo.steps.push('✅ License key found in database');
+      const result = await response.json();
+      debugInfo.steps.push('✅ License key found via admin panel');
       debugInfo.licenseFound = true;
-      debugInfo.clientData = {
-        id: clientData.id,
-        companyName: clientData.companyName,
-        status: clientData.status,
-        subscriptionStatus: clientData.subscriptionStatus,
-        websiteDomain: clientData.websiteDomain,
-        licenseVerified: clientData.licenseVerified,
-        subscriptionEndDate: clientData.subscriptionEndDate
-      };
+      debugInfo.adminResult = result;
 
-      // Domain extraction and validation
-      const extractDomain = (url: string): string => {
-        try {
-          const parsedUrl = new URL(url.startsWith('http') ? url : `https://${url}`);
-          return parsedUrl.hostname.toLowerCase();
-        } catch {
-          return url.toLowerCase();
-        }
-      };
-
-      const requestDomain = extractDomain(domain);
-      const clientDomain = extractDomain(clientData.websiteDomain);
-      
-      debugInfo.domainCheck = {
-        requestDomain,
-        clientDomain,
-        match: requestDomain === clientDomain
-      };
-
-      if (requestDomain !== clientDomain) {
-        debugInfo.steps.push('❌ Domain mismatch');
-        return NextResponse.json(debugInfo, { status: 403 });
+      if (result.valid) {
+        debugInfo.steps.push('✅ All validations passed');
+        debugInfo.result = 'SUCCESS';
+        debugInfo.globallyVerified = true; // If admin panel says valid, consider it verified
+      } else {
+        debugInfo.steps.push('❌ License validation failed');
+        debugInfo.result = 'FAILED';
       }
-
-      debugInfo.steps.push('✅ Domain validation passed');
-
-      // Status checks
-      if (clientData.status !== 'active') {
-        debugInfo.steps.push(`❌ Client status is ${clientData.status}, not active`);
-        return NextResponse.json(debugInfo, { status: 403 });
-      }
-
-      debugInfo.steps.push('✅ Client status is active');
-
-      if (clientData.subscriptionStatus !== 'active') {
-        debugInfo.steps.push(`❌ Subscription status is ${clientData.subscriptionStatus}, not active`);
-        return NextResponse.json(debugInfo, { status: 402 });
-      }
-
-      debugInfo.steps.push('✅ Subscription status is active');
-
-      // Subscription expiry check
-      if (clientData.subscriptionEndDate) {
-        const now = new Date();
-        const expiryDate = new Date(clientData.subscriptionEndDate);
-        
-        debugInfo.subscriptionCheck = {
-          now: now.toISOString(),
-          expiryDate: expiryDate.toISOString(),
-          expired: now > expiryDate
-        };
-        
-        if (now > expiryDate) {
-          debugInfo.steps.push('❌ Subscription has expired');
-          return NextResponse.json(debugInfo, { status: 402 });
-        }
-      }
-
-      debugInfo.steps.push('✅ All validations passed');
-      debugInfo.result = 'SUCCESS';
-      debugInfo.globallyVerified = clientData.licenseVerified === 'yes';
 
       return NextResponse.json(debugInfo);
 
     } catch (queryError: any) {
-      debugInfo.steps.push('❌ Database query failed');
+      debugInfo.steps.push('❌ Admin panel query failed');
       debugInfo.queryError = {
         message: queryError.message,
         stack: queryError.stack

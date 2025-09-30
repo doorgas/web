@@ -1,7 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/admin-db';
-import { saasClients } from '@/lib/schema';
-import { eq } from 'drizzle-orm';
 
 // Helper function to extract domain from URL
 function extractDomain(url: string): string {
@@ -18,7 +15,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { domain } = body;
     
-    console.log('Checking license by domain:', domain);
+    console.log('Checking license by domain via admin API:', domain);
 
     if (!domain) {
       return NextResponse.json({
@@ -30,80 +27,46 @@ export async function POST(request: NextRequest) {
     const requestDomain = extractDomain(domain);
     
     try {
-      // Find any client with this domain that has verified license
-      const client = await adminDb
-        .select({
-          id: saasClients.id,
-          licenseKey: saasClients.licenseKey,
-          companyName: saasClients.companyName,
-          status: saasClients.status,
-          subscriptionStatus: saasClients.subscriptionStatus,
-          subscriptionEndDate: saasClients.subscriptionEndDate,
-          websiteDomain: saasClients.websiteDomain,
-          licenseVerified: saasClients.licenseVerified,
-        })
-        .from(saasClients)
-        .where(eq(saasClients.websiteDomain, requestDomain))
-        .limit(1);
+      // Call admin panel API to check license by domain
+      const adminPanelUrl = process.env.ADMIN_PANEL_URL || 'https://flower-delivery-final-admin.vercel.app';
+      const url = `${adminPanelUrl}/api/saas/check-by-domain`;
+      
+      console.log('Calling admin panel API:', url);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          domain: requestDomain
+        }),
+      });
 
-      if (client.length === 0) {
+      if (!response.ok) {
+        console.log('Admin panel API failed with status:', response.status);
         return NextResponse.json({
           valid: false,
           error: 'No license found for this domain'
         }, { status: 404 });
       }
 
-      const clientData = client[0];
-
-      // Check if client is suspended or cancelled
-      if (clientData.status !== 'active') {
-        return NextResponse.json({
-          valid: false,
-          error: `License is ${clientData.status}`
-        }, { status: 403 });
-      }
-
-      // Check subscription status and expiry
-      if (clientData.subscriptionStatus !== 'active') {
-        return NextResponse.json({
-          valid: false,
-          error: `Subscription is ${clientData.subscriptionStatus}`
-        }, { status: 402 });
-      }
-
-      // Check subscription expiry (skip check if lifetime subscription)
-      if (clientData.subscriptionEndDate) {
-        const now = new Date();
-        const expiryDate = new Date(clientData.subscriptionEndDate);
-        
-        if (now > expiryDate) {
-          return NextResponse.json({
-            valid: false,
-            error: 'Subscription has expired'
-          }, { status: 402 });
-        }
-      }
-
-      // Check if license has been globally verified
-      const isGloballyVerified = clientData.licenseVerified === 'yes';
-
+      const adminResult = await response.json();
+      
+      // Forward the admin panel response
       return NextResponse.json({
-        valid: true,
-        globallyVerified: isGloballyVerified,
-        licenseKey: clientData.licenseKey, // Return the license key so it can be stored locally
-        client: {
-          id: clientData.id,
-          companyName: clientData.companyName,
-          subscriptionStatus: clientData.subscriptionStatus,
-          subscriptionEndDate: clientData.subscriptionEndDate,
-        }
+        valid: adminResult.valid,
+        globallyVerified: adminResult.globallyVerified,
+        licenseKey: adminResult.licenseKey,
+        client: adminResult.client,
+        error: adminResult.error
       });
 
-    } catch (dbError) {
-      console.error('Database error in domain license check:', dbError);
+    } catch (apiError) {
+      console.error('Admin panel API error:', apiError);
       return NextResponse.json({
         valid: false,
-        error: 'Unable to verify license - database connection failed'
+        error: 'Unable to verify license - admin panel connection failed'
       }, { status: 500 });
     }
 

@@ -1,7 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/admin-db';
-import { saasClients } from '@/lib/schema';
-import { eq } from 'drizzle-orm';
 
 // Helper function to extract domain from URL
 function extractDomain(url: string): string {
@@ -18,7 +15,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { licenseKey, domain } = body;
     
-    console.log('Global license setup:', { 
+    console.log('Global license setup via admin API:', { 
       licenseKey: licenseKey?.substring(0, 10) + '...', 
       domain 
     });
@@ -32,91 +29,60 @@ export async function POST(request: NextRequest) {
 
     const requestDomain = extractDomain(domain);
     
-    // Find the client with this license key in the admin database
     try {
-      const client = await adminDb
-        .select({
-          id: saasClients.id,
-          status: saasClients.status,
-          subscriptionStatus: saasClients.subscriptionStatus,
-          subscriptionEndDate: saasClients.subscriptionEndDate,
-          websiteDomain: saasClients.websiteDomain,
-          licenseVerified: saasClients.licenseVerified,
-        })
-        .from(saasClients)
-        .where(eq(saasClients.licenseKey, licenseKey))
-        .limit(1);
-
-      if (client.length === 0) {
-        return NextResponse.json({
-          success: false,
-          error: 'Invalid license key'
-        }, { status: 401 });
-      }
-
-      const clientData = client[0];
-
-      // Check if client is suspended or cancelled
-      if (clientData.status !== 'active') {
-        return NextResponse.json({
-          success: false,
-          error: `License is ${clientData.status}`
-        }, { status: 403 });
-      }
-
-      // Check domain match (strict - no subdomains allowed)
-      const clientDomain = extractDomain(clientData.websiteDomain);
+      // Call admin panel API to verify and mark license as globally verified
+      const adminPanelUrl = process.env.ADMIN_PANEL_URL || 'https://flower-delivery-final-admin.vercel.app';
+      const url = `${adminPanelUrl}/api/saas/verify-license`;
       
-      if (requestDomain !== clientDomain) {
-        return NextResponse.json({
-          success: false,
-          error: `Domain not authorized for this license. Expected: ${clientDomain}, Got: ${requestDomain}`
-        }, { status: 403 });
-      }
-
-      // Check subscription status and expiry
-      if (clientData.subscriptionStatus !== 'active') {
-        return NextResponse.json({
-          success: false,
-          error: `Subscription is ${clientData.subscriptionStatus}`
-        }, { status: 402 });
-      }
-
-      // Check subscription expiry (skip check if lifetime subscription)
-      if (clientData.subscriptionEndDate) {
-        const now = new Date();
-        const expiryDate = new Date(clientData.subscriptionEndDate);
-        
-        if (now > expiryDate) {
-          return NextResponse.json({
-            success: false,
-            error: 'Subscription has expired'
-          }, { status: 402 });
-        }
-      }
-
-      // Update the license as globally verified
-      await adminDb
-        .update(saasClients)
-        .set({ 
-          licenseVerified: 'yes',
-          lastVerificationDate: new Date(),
-          lastAccessDate: new Date(),
-        })
-        .where(eq(saasClients.id, clientData.id));
-
-      console.log('License globally verified and database updated for client:', clientData.id);
-
-      return NextResponse.json({
-        success: true,
-        message: 'License activated globally'
+      console.log('Calling admin panel for license verification and global setup:', url);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          licenseKey,
+          domain: requestDomain,
+          setGloballyVerified: true // Special flag to mark as globally verified
+        }),
       });
 
-    } catch (dbError) {
-      console.error('Database error in global license setup:', dbError);
+      if (!response.ok) {
+        let errorMessage = `License verification failed`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // Response might not be JSON
+        }
+        
+        return NextResponse.json({
+          success: false,
+          error: errorMessage
+        }, { status: response.status });
+      }
+
+      const result = await response.json();
+      
+      if (result.valid) {
+        console.log('License globally verified via admin panel');
+        return NextResponse.json({
+          success: true,
+          message: 'License activated globally'
+        });
+      } else {
+        return NextResponse.json({
+          success: false,
+          error: result.error || 'License verification failed'
+        }, { status: 400 });
+      }
+
+    } catch (apiError) {
+      console.error('Admin panel API error during global setup:', apiError);
       return NextResponse.json({
         success: false,
-        error: 'Unable to setup license - database connection failed'
+        error: 'Unable to setup license - admin panel connection failed'
       }, { status: 500 });
     }
 
