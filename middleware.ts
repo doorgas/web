@@ -102,44 +102,31 @@ export default withAuth(
     const { pathname } = req.nextUrl
     const token = req.nextauth.token
 
-    console.log('Middleware running:', { pathname, hasToken: !!token, isPublic: isPublicRoute(pathname) });
+    // Remove debug logs now that issue is fixed
 
-    // FIRST PRIORITY: Authentication check - NO license logic for unauthenticated users
+    // ABSOLUTE FIRST: Check authentication - ZERO license logic for unauthenticated users
     if (!token) {
-      console.log('No token found');
-      
       // If it's a public route, allow access immediately
       if (isPublicRoute(pathname)) {
-        console.log('Public route, allowing access');
         return NextResponse.next();
       }
       
       // If it's a protected route, redirect to register immediately
-      console.log('Protected route without token, redirecting to register');
       return NextResponse.redirect(new URL('/register', req.url));
     }
 
-    // SECOND PRIORITY: User is authenticated, now check license (only for non-exempt routes)
-    console.log('User is authenticated');
-    
+    // User is authenticated - proceed with license checks
     if (!isLicenseExemptRoute(pathname)) {
-      console.log('Checking license for authenticated user on protected route');
       const licenseCheck = await checkLicenseMiddleware(req);
       if (licenseCheck) {
         return licenseCheck;
       }
     }
-
-    console.log('Allowing access to authenticated user');
     return NextResponse.next()
   },
   {
     callbacks: {
       authorized: ({ token, req }) => {
-        const { pathname } = req.nextUrl
-        
-        console.log('NextAuth authorized callback:', { pathname, hasToken: !!token, isPublic: isPublicRoute(pathname) });
-        
         // Always return true - let our custom middleware handle all the logic
         // This prevents NextAuth from doing its own redirects that might interfere
         return true;
