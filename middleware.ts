@@ -104,25 +104,33 @@ export default withAuth(
 
     console.log('Middleware running:', { pathname, hasToken: !!token, isPublic: isPublicRoute(pathname) });
 
-    // CRITICAL: If no token and not a public route, NextAuth should have already redirected
-    // If we reach here, it means either user is authenticated OR it's a public route
-    
-    // Double-check authentication (redundant safety check)
-    if (!token && !isPublicRoute(pathname)) {
-      console.log('SAFETY: Redirecting unauthenticated user to register');
-      return NextResponse.redirect(new URL('/register', req.url))
+    // FIRST PRIORITY: Authentication check - NO license logic for unauthenticated users
+    if (!token) {
+      console.log('No token found');
+      
+      // If it's a public route, allow access immediately
+      if (isPublicRoute(pathname)) {
+        console.log('Public route, allowing access');
+        return NextResponse.next();
+      }
+      
+      // If it's a protected route, redirect to register immediately
+      console.log('Protected route without token, redirecting to register');
+      return NextResponse.redirect(new URL('/register', req.url));
     }
 
-    // Only check license verification for authenticated users on protected routes
-    if (token && !isLicenseExemptRoute(pathname)) {
-      console.log('Checking license for authenticated user');
+    // SECOND PRIORITY: User is authenticated, now check license (only for non-exempt routes)
+    console.log('User is authenticated');
+    
+    if (!isLicenseExemptRoute(pathname)) {
+      console.log('Checking license for authenticated user on protected route');
       const licenseCheck = await checkLicenseMiddleware(req);
       if (licenseCheck) {
         return licenseCheck;
       }
     }
 
-    console.log('Allowing access');
+    console.log('Allowing access to authenticated user');
     return NextResponse.next()
   },
   {
@@ -132,14 +140,9 @@ export default withAuth(
         
         console.log('NextAuth authorized callback:', { pathname, hasToken: !!token, isPublic: isPublicRoute(pathname) });
         
-        // Allow access to public routes for everyone
-        if (isPublicRoute(pathname)) {
-          return true
-        }
-        
-        // For all other routes, require authentication
-        // If this returns false, NextAuth will redirect to signIn page (/register)
-        return !!token
+        // Always return true - let our custom middleware handle all the logic
+        // This prevents NextAuth from doing its own redirects that might interfere
+        return true;
       },
     },
     pages: {
