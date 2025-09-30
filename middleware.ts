@@ -102,21 +102,27 @@ export default withAuth(
     const { pathname } = req.nextUrl
     const token = req.nextauth.token
 
-    // First, handle authentication - if user is not authenticated and trying to access protected routes
+    console.log('Middleware running:', { pathname, hasToken: !!token, isPublic: isPublicRoute(pathname) });
+
+    // CRITICAL: If no token and not a public route, NextAuth should have already redirected
+    // If we reach here, it means either user is authenticated OR it's a public route
+    
+    // Double-check authentication (redundant safety check)
     if (!token && !isPublicRoute(pathname)) {
-      // Don't check license for unauthenticated users - send them to register
+      console.log('SAFETY: Redirecting unauthenticated user to register');
       return NextResponse.redirect(new URL('/register', req.url))
     }
 
-    // Only check license verification for authenticated users (except for license setup routes)
+    // Only check license verification for authenticated users on protected routes
     if (token && !isLicenseExemptRoute(pathname)) {
+      console.log('Checking license for authenticated user');
       const licenseCheck = await checkLicenseMiddleware(req);
       if (licenseCheck) {
         return licenseCheck;
       }
     }
 
-    // If user is authenticated or accessing public routes, allow access
+    console.log('Allowing access');
     return NextResponse.next()
   },
   {
@@ -124,12 +130,15 @@ export default withAuth(
       authorized: ({ token, req }) => {
         const { pathname } = req.nextUrl
         
+        console.log('NextAuth authorized callback:', { pathname, hasToken: !!token, isPublic: isPublicRoute(pathname) });
+        
         // Allow access to public routes for everyone
         if (isPublicRoute(pathname)) {
           return true
         }
         
         // For all other routes, require authentication
+        // If this returns false, NextAuth will redirect to signIn page (/register)
         return !!token
       },
     },
