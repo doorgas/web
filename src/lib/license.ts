@@ -245,6 +245,12 @@ export function getLicenseKey(): string | null {
   const envLicense = process.env.NEXT_PUBLIC_LICENSE_KEY;
   if (envLicense) return envLicense;
   
+  // Try cookie (for middleware)
+  if (typeof document !== 'undefined') {
+    const cookieMatch = document.cookie.match(/license_key=([^;]+)/);
+    if (cookieMatch) return cookieMatch[1];
+  }
+  
   // Try localStorage
   const stored = getStoredLicenseStatus();
   return stored?.licenseKey || null;
@@ -290,94 +296,99 @@ export async function checkGlobalLicenseStatus(licenseKey: string, domain?: stri
   }
 }
 
-// Main license validation function
+// Check license by domain only (no local storage/cookies)
+export async function checkLicenseByDomain(domain?: string): Promise<{
+  valid: boolean;
+  globallyVerified?: boolean;
+  licenseKey?: string;
+  error?: string;
+  client?: any;
+}> {
+  const currentDomain = domain || getCurrentDomain();
+  
+  try {
+    const response = await fetch('/api/license/check-by-domain', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        domain: currentDomain
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        valid: false,
+        error: errorData.error || `Server error: ${response.status}`
+      };
+    }
+
+    const data = await response.json();
+    return {
+      valid: data.valid,
+      globallyVerified: data.globallyVerified,
+      licenseKey: data.licenseKey,
+      client: data.client,
+      error: data.error
+    };
+  } catch (error) {
+    console.error('Domain license check error:', error);
+    return {
+      valid: false,
+      error: `Failed to check license for domain: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+}
+
+// Main license validation function - ONLY checks admin database by domain
 export async function validateLicense(): Promise<{
   isValid: boolean;
   error?: string;
   needsSetup?: boolean;
 }> {
-  const licenseKey = getLicenseKey();
+  console.log('Validating license by domain only...');
   
-  if (!licenseKey) {
+  try {
+    // Check license by domain in admin database
+    const domainCheck = await checkLicenseByDomain();
+    
+    if (domainCheck.valid && domainCheck.globallyVerified) {
+      console.log('License found and globally verified for this domain');
+      return { isValid: true };
+    }
+    
+    if (domainCheck.valid && !domainCheck.globallyVerified) {
+      console.log('License found but not globally verified - needs setup');
+      return {
+        isValid: false,
+        needsSetup: true,
+        error: 'License exists but needs to be activated'
+      };
+    }
+    
+    if (!domainCheck.valid) {
+      console.log('No valid license found for this domain');
+      return {
+        isValid: false,
+        needsSetup: true,
+        error: domainCheck.error || 'No license found for this domain'
+      };
+    }
+    
     return {
       isValid: false,
       needsSetup: true,
-      error: 'No license key found'
+      error: 'License validation failed'
     };
-  }
-  
-  // First, check global license status (from admin database)
-  try {
-    const globalStatus = await checkGlobalLicenseStatus(licenseKey);
     
-    if (globalStatus.valid && globalStatus.globallyVerified) {
-      console.log('License globally verified - allowing access');
-      
-      // Update local storage with global verification status
-      const status: LicenseStatus = {
-        isValid: true,
-        licenseKey,
-        lastVerified: Date.now(),
-        error: null,
-        gracePeriodExpiry: null
-      };
-      storeLicenseStatus(status);
-      
-      return { isValid: true };
-    }
-    
-    if (!globalStatus.valid) {
-      return {
-        isValid: false,
-        error: globalStatus.error || 'License validation failed globally'
-      };
-    }
-  } catch (error) {
-    console.warn('Global license check failed, falling back to regular verification:', error);
-  }
-  
-  // Fallback to regular license verification flow
-  const stored = getStoredLicenseStatus();
-  
-  // If we have a valid stored status and don't need reverification
-  if (stored && stored.isValid && !needsVerification(stored.lastVerified)) {
-    return { isValid: true };
-  }
-  
-  // If we have an invalid stored status but are in grace period
-  if (stored && !stored.isValid && isInGracePeriod(stored.gracePeriodExpiry)) {
-    console.warn('License invalid but in grace period');
-    return { isValid: true };
-  }
-  
-  // Need to verify license
-  try {
-    const updatedStatus = await updateLicenseStatus(licenseKey);
-    
-    if (updatedStatus.isValid) {
-      return { isValid: true };
-    }
-    
-    // If invalid but we just started grace period
-    if (isInGracePeriod(updatedStatus.gracePeriodExpiry)) {
-      return { isValid: true };
-    }
-    
-    return {
-      isValid: false,
-      error: updatedStatus.error || 'License validation failed'
-    };
   } catch (error) {
     console.error('License validation error:', error);
-    
-    // If we can't verify and have grace period remaining
-    if (stored && isInGracePeriod(stored.gracePeriodExpiry)) {
-      return { isValid: true };
-    }
-    
     return {
       isValid: false,
-      error: 'Unable to verify license'
+      needsSetup: true,
+      error: 'Unable to verify license - please contact administrator'
     };
   }
 }

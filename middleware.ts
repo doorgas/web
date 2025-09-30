@@ -93,151 +93,77 @@ function isLicenseExemptRoute(pathname: string): boolean {
 
 async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | null> {
   try {
-    // Get license key from cookie or header
-    let licenseKey = req.cookies.get('license_key')?.value;
-    
-    // If no license key in cookie, check if it's stored in localStorage (client-side)
-    // For server-side, we'll need to redirect to setup if no license is found
-    if (!licenseKey) {
-      // Check environment variable as fallback for initial setup
-      licenseKey = process.env.NEXT_PUBLIC_LICENSE_KEY;
-    }
-    
-    if (!licenseKey) {
-      console.log('No license key found, redirecting to setup');
-      return NextResponse.redirect(new URL('/license-setup', req.url));
-    }
-    
     // Get current domain - normalize it
     const currentDomain = (req.headers.get('host') || req.nextUrl.hostname).toLowerCase();
     
-    console.log('Middleware license check:', { licenseKey: licenseKey.substring(0, 10) + '...', currentDomain });
+    console.log('Middleware license check by domain:', { currentDomain });
     
-    // Strict license verification - must pass to continue
-    const licenseResult = await strictLicenseCheck(licenseKey, currentDomain);
+    // Check license by domain only (no local storage/cookies needed)
+    const licenseResult = await checkLicenseByDomain(currentDomain);
     
     if (!licenseResult.valid) {
-      console.log('License check failed:', licenseResult.error);
-      
-      // Special handling for deleted clients - immediate redirect to setup
-      const isDeletedClient = licenseResult.error?.includes('Invalid license key') || 
-                             licenseResult.error?.includes('License key not found');
-      
-      // Clear invalid license key from cookie
-      const redirectUrl = isDeletedClient ? '/license-setup' : '/license-invalid';
-      const response = NextResponse.redirect(new URL(redirectUrl, req.url));
-      response.cookies.delete('license_key');
-      
-      // Add header to indicate deleted client for client-side handling
-      if (isDeletedClient) {
-        response.headers.set('X-License-Status', 'deleted');
-      }
-      
-      return response;
+      console.log('No license found for domain, redirecting to setup');
+      return NextResponse.redirect(new URL('/license-setup', req.url));
     }
     
-    console.log('License check passed');
-    // License is valid, continue
-    return null;
+    if (licenseResult.valid && !licenseResult.globallyVerified) {
+      console.log('License found but not verified, redirecting to setup');
+      return NextResponse.redirect(new URL('/license-setup', req.url));
+    }
+    
+    if (licenseResult.valid && licenseResult.globallyVerified) {
+      console.log('License check passed for domain:', currentDomain);
+      // License is valid and verified, continue
+      return null;
+    }
+    
+    // Fallback - redirect to setup
+    return NextResponse.redirect(new URL('/license-setup', req.url));
+    
   } catch (error) {
     console.error('License check error in middleware:', error);
     
     // On error, redirect to license setup - DO NOT ALLOW ACCESS
-    const response = NextResponse.redirect(new URL('/license-setup', req.url));
-    response.cookies.delete('license_key');
-    
-    return response;
+    return NextResponse.redirect(new URL('/license-setup', req.url));
   }
 }
 
-async function strictLicenseCheck(licenseKey: string, domain: string): Promise<{valid: boolean, error?: string}> {
+// Helper function for domain-based license check in middleware
+async function checkLicenseByDomain(domain: string): Promise<{valid: boolean, globallyVerified?: boolean, error?: string}> {
   try {
-    // First try to check global license status (local database call)
-    try {
-      const globalCheckUrl = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/license/check-global-status`;
-      
-      const globalResponse = await fetch(globalCheckUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          licenseKey,
-          domain
-        }),
-      });
-
-      if (globalResponse.ok) {
-        const globalData = await globalResponse.json();
-        if (globalData.valid && globalData.globallyVerified) {
-          console.log('License globally verified - middleware allowing access');
-          return {
-            valid: true
-          };
-        }
-      }
-    } catch (globalError) {
-      console.warn('Global license check failed in middleware, falling back to admin panel:', globalError);
-    }
-
-    // Fallback to admin panel verification
-    const adminPanelUrl = process.env.ADMIN_PANEL_URL || 'http://localhost:3000';
-    const url = `${adminPanelUrl}/api/saas/verify-license`;
+    // Use the new API endpoint that checks by domain
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const url = `${baseUrl}/api/license/check-by-domain`;
     
-    console.log('Making license verification request to:', url);
+    console.log('Checking license for domain in middleware:', domain);
     
-    // Create a timeout promise to handle hanging requests
-    const timeoutPromise = new Promise<Response>((_, reject) => {
-      setTimeout(() => reject(new Error('License server timeout')), 5000);
-    });
-    
-    const fetchPromise = fetch(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        licenseKey,
-        domain
+        domain: domain
       }),
     });
     
-    const response = await Promise.race([fetchPromise, timeoutPromise]);
-    
-    console.log('License verification response status:', response.status);
-    
     if (!response.ok) {
-      let errorMessage = `Server error: ${response.status}`;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorMessage;
-      } catch {
-        // Response might not be JSON
-      }
-      
-      return {
-        valid: false,
-        error: errorMessage
-      };
+      console.log('Domain license check failed with status:', response.status);
+      return { valid: false, error: `No license found for domain` };
     }
     
     const data = await response.json();
-    console.log('License verification result:', { valid: data.valid, hasClient: !!data.client });
-    
     return {
       valid: data.valid === true,
+      globallyVerified: data.globallyVerified === true,
       error: data.error
     };
   } catch (error) {
-    console.error('License verification failed:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Network error';
-    
-    return {
-      valid: false,
-      error: `Connection failed: ${errorMessage}`
-    };
+    console.error('Domain license check failed in middleware:', error);
+    return { valid: false, error: 'Connection failed' };
   }
 }
+
 
 export const config = {
   // Match all routes except static files and images

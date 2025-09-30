@@ -24,6 +24,9 @@ export default function LicenseSetupPage() {
     // Automatically test connection when page loads
     testConnection();
     
+    // Check if there's already a globally verified license for this domain
+    checkExistingLicense();
+    
     // Check if redirected here due to domain verification failure
     const urlParams = new URLSearchParams(window.location.search);
     const errorType = urlParams.get('error');
@@ -41,6 +44,38 @@ export default function LicenseSetupPage() {
       setError(`Your subscription expired on ${expiryDate}. Please contact your administrator to renew your subscription.`);
     }
   }, []);
+
+  const checkExistingLicense = async () => {
+    try {
+      const response = await fetch('/api/license/check-by-domain', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          domain: currentDomain || window.location.hostname
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.valid && result.globallyVerified) {
+          // License is already globally verified, redirect to home
+          console.log('License already globally verified, redirecting to home');
+          router.push('/');
+          router.refresh();
+          return;
+        }
+        if (result.valid && !result.globallyVerified && result.licenseKey) {
+          // License exists but not verified, pre-fill the form
+          setLicenseKey(result.licenseKey);
+          console.log('Found existing license key for domain');
+        }
+      }
+    } catch (error) {
+      console.log('No existing license found for domain:', error);
+    }
+  };
 
   const testConnection = async () => {
     setConnectionStatus('testing');
@@ -89,20 +124,7 @@ export default function LicenseSetupPage() {
       const result = await response.json();
 
       if (result.success && result.result?.valid) {
-        // Store license key in cookie for middleware
-        document.cookie = `license_key=${licenseKey.trim()}; path=/; max-age=31536000`; // 1 year
-        
-        // Store license status in localStorage
-        const licenseStatus = {
-          isValid: true,
-          licenseKey: licenseKey.trim(),
-          lastVerified: Date.now(),
-          error: null,
-          gracePeriodExpiry: null
-        };
-        localStorage.setItem('saas_license_status', JSON.stringify(licenseStatus));
-        
-        // Set up global license verification
+        // Set up global license verification - this is the only thing that matters
         try {
           const globalSetupResponse = await fetch('/api/license/setup-global', {
             method: 'POST',
@@ -117,16 +139,19 @@ export default function LicenseSetupPage() {
           
           if (globalSetupResponse.ok) {
             console.log('License globally activated - will work across all browsers now');
+            // Redirect to home page
+            router.push('/');
+            router.refresh();
+            return;
           } else {
-            console.warn('Global license setup failed, but local license is still valid');
+            const globalError = await globalSetupResponse.json();
+            setError(`Failed to activate license globally: ${globalError.error || 'Unknown error'}`);
+            return;
           }
         } catch (globalError) {
-          console.warn('Failed to set up global license:', globalError);
+          setError(`Failed to set up global license: ${globalError instanceof Error ? globalError.message : 'Unknown error'}`);
+          return;
         }
-        
-        // Redirect to home page
-        router.push('/');
-        router.refresh();
       } else {
         const errorMessage = result.result?.error || result.error || 'Failed to verify license key';
         setError(errorMessage);
