@@ -102,20 +102,21 @@ export default withAuth(
     const { pathname } = req.nextUrl
     const token = req.nextauth.token
 
-    // Check license verification first (except for license setup routes)
-    if (!isLicenseExemptRoute(pathname)) {
+    // First, handle authentication - if user is not authenticated and trying to access protected routes
+    if (!token && !isPublicRoute(pathname)) {
+      // Don't check license for unauthenticated users - send them to register
+      return NextResponse.redirect(new URL('/register', req.url))
+    }
+
+    // Only check license verification for authenticated users (except for license setup routes)
+    if (token && !isLicenseExemptRoute(pathname)) {
       const licenseCheck = await checkLicenseMiddleware(req);
       if (licenseCheck) {
         return licenseCheck;
       }
     }
 
-    // If user is not authenticated and trying to access protected routes
-    if (!token && !isPublicRoute(pathname)) {
-      return NextResponse.redirect(new URL('/register', req.url))
-    }
-
-    // If user is authenticated, allow access
+    // If user is authenticated or accessing public routes, allow access
     return NextResponse.next()
   },
   {
@@ -142,6 +143,8 @@ function isPublicRoute(pathname: string): boolean {
   const publicRoutes = [
     '/register',
     '/verify-otp',
+    '/license-setup',
+    '/license-invalid',
     // Debug and testing routes - accessible without authentication
     '/debug/license-test',
     '/debug/connection-test',
@@ -152,6 +155,7 @@ function isPublicRoute(pathname: string): boolean {
     '/api/auth/',
     '/api/email/',
     '/api/register',
+    '/api/license/',
     // Debug API routes - accessible without authentication
     '/api/debug/'
   ]
