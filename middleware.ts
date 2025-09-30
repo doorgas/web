@@ -9,56 +9,26 @@ const licenseCache = new Map<string, {
   ttl: number
 }>();
 
-// Cache TTL: 24 hours for valid licenses, 5 minutes for invalid
-const CACHE_TTL_VALID = 24 * 60 * 60 * 1000; // 24 hours
-const CACHE_TTL_INVALID = 5 * 60 * 1000; // 5 minutes
+// Cache TTL: 30 seconds for valid licenses, 5 seconds for invalid
+const CACHE_TTL_VALID = 30 * 1000;
+const CACHE_TTL_INVALID = 5 * 1000;
 
 // Request deduplication - prevent multiple simultaneous calls for the same domain
 const pendingRequests = new Map<string, Promise<{valid: boolean, globallyVerified?: boolean, error?: string}>>();
 
-// Track 24-hour license sessions - persistent across page navigation
-const licenseSessionKey = 'domain_license_session';
-const LICENSE_SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+// Track navigation sessions to provide grace period
+const navigationSessions = new Map<string, { firstAccess: number, allowedUntil: number }>();
+const NAVIGATION_GRACE_PERIOD = 10 * 1000; // 10 seconds grace period for navigation
 
-// Helper functions for license session management
-function getLicenseSession(domain: string): { verified: boolean; expiresAt: number } | null {
-  // Check server-side in-memory store
-  return licenseSessionsStore.get(domain) || null;
+// Safari-specific handling
+function isSafari(userAgent: string): boolean {
+  return userAgent.includes('Safari') && !userAgent.includes('Chrome') && !userAgent.includes('Chromium');
 }
 
-function setLicenseSession(domain: string, verified: boolean): void {
-  const expiresAt = Date.now() + LICENSE_SESSION_DURATION;
-  licenseSessionsStore.set(domain, { verified, expiresAt });
-  
-  // Clean up expired sessions periodically
-  cleanupExpiredSessions();
+// Safari needs longer grace periods due to its different timing behavior
+function getGracePeriodForBrowser(userAgent: string): number {
+  return isSafari(userAgent) ? 15 * 1000 : NAVIGATION_GRACE_PERIOD; // 15 seconds for Safari
 }
-
-function isLicenseSessionValid(domain: string): boolean {
-  const session = getLicenseSession(domain);
-  if (!session) return false;
-  
-  const now = Date.now();
-  if (now > session.expiresAt) {
-    // Session expired, remove it
-    licenseSessionsStore.delete(domain);
-    return false;
-  }
-  
-  return session.verified;
-}
-
-function cleanupExpiredSessions(): void {
-  const now = Date.now();
-  for (const [domain, session] of licenseSessionsStore.entries()) {
-    if (now > session.expiresAt) {
-      licenseSessionsStore.delete(domain);
-    }
-  }
-}
-
-// In-memory store for license sessions (in production, use Redis or similar)
-const licenseSessionsStore = new Map<string, { verified: boolean; expiresAt: number }>();
 
 export default withAuth(
   async function middleware(req) {
@@ -153,16 +123,27 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
   try {
     // Get current domain - normalize it
     const currentDomain = (req.headers.get('host') || req.nextUrl.hostname).toLowerCase();
+    const userAgent = req.headers.get('user-agent') || '';
+    const browserGracePeriod = getGracePeriodForBrowser(userAgent);
     
-    console.log('Middleware license check by domain:', { currentDomain, pathname: req.nextUrl.pathname });
+    console.log('Middleware license check by domain:', { 
+      currentDomain, 
+      pathname: req.nextUrl.pathname,
+      isSafari: isSafari(userAgent),
+      gracePeriod: browserGracePeriod
+    });
     
     // Prevent redirect loops - if already on license-setup, be more lenient
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
     
-    // Check if we have a valid 24-hour license session
-    if (isLicenseSessionValid(currentDomain)) {
-      console.log('Valid 24-hour license session found, allowing access');
-      return null; // Allow access for the full 24 hours
+    // Check if we're in a navigation grace period (browser-specific)
+    const sessionKey = currentDomain;
+    const session = navigationSessions.get(sessionKey);
+    const now = Date.now();
+    
+    if (session && now < session.allowedUntil) {
+      console.log('Within navigation grace period, allowing access');
+      return null; // Allow access during grace period
     }
     
     // Check cache first to avoid expensive API calls
@@ -170,17 +151,41 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     if (cachedResult) {
       console.log('Using cached license result for domain:', currentDomain);
       
-      // If license is valid, create/update 24-hour session
+      // If license is valid, update/create navigation session
       if (cachedResult.valid && cachedResult.globallyVerified) {
-        setLicenseSession(currentDomain, true);
-        console.log('Created 24-hour license session for domain:', currentDomain);
-        return null; // Allow access
+        navigationSessions.set(sessionKey, {
+          firstAccess: session?.firstAccess || now,
+          allowedUntil: now + browserGracePeriod
+        });
       }
       
       return handleLicenseResult(cachedResult, isOnLicenseSetup, req, true);
     }
     
-    // No valid session and no cache - need to check license
+    // If no cache and no grace period, start a grace period for new sessions
+    if (!session) {
+      console.log('Starting navigation grace period for new session (Safari-aware)');
+      navigationSessions.set(sessionKey, {
+        firstAccess: now,
+        allowedUntil: now + browserGracePeriod
+      });
+      
+      // For Safari, be even more conservative and skip API call on first navigation
+      if (isSafari(userAgent)) {
+        console.log('Safari detected: allowing immediate access without API call');
+        // Start background license check but don't wait for it or block navigation
+        setTimeout(() => checkLicenseInBackground(currentDomain), 100);
+        return null;
+      }
+      
+      // Start background license check but don't wait for it
+      checkLicenseInBackground(currentDomain);
+      
+      // Allow access during initial grace period
+      return null;
+    }
+    
+    // Grace period expired, need to check license
     // Check if there's already a pending request for this domain
     let licenseResult;
     if (pendingRequests.has(currentDomain)) {
@@ -201,11 +206,12 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
       }
     }
     
-    // If license is valid, create 24-hour session
+    // If license is valid, extend the grace period
     if (licenseResult.valid && licenseResult.globallyVerified) {
-      setLicenseSession(currentDomain, true);
-      console.log('License verified, created 24-hour session for domain:', currentDomain);
-      return null; // Allow access
+      navigationSessions.set(sessionKey, {
+        firstAccess: session?.firstAccess || now,
+        allowedUntil: now + browserGracePeriod
+      });
     }
     
     return handleLicenseResult(licenseResult, isOnLicenseSetup, req, false);
@@ -216,15 +222,12 @@ async function checkLicenseMiddleware(req: NextRequest): Promise<NextResponse | 
     // Get current domain for error handling
     const currentDomain = (req.headers.get('host') || req.nextUrl.hostname).toLowerCase();
     
-    // On error, check if we have a valid session before redirecting
-    if (isLicenseSessionValid(currentDomain)) {
-      console.log('Error during license check, but valid session exists - allowing access');
-      return null;
-    }
-    
-    // On error, only redirect if not already on license-setup
+    // On error, only redirect if not already on license-setup and not in grace period
     const isOnLicenseSetup = req.nextUrl.pathname === '/license-setup';
-    if (!isOnLicenseSetup) {
+    const session = navigationSessions.get(currentDomain);
+    const inGracePeriod = session && Date.now() < session.allowedUntil;
+    
+    if (!isOnLicenseSetup && !inGracePeriod) {
       return NextResponse.redirect(new URL('/license-setup', req.url));
     }
     
@@ -255,6 +258,17 @@ function setCachedLicenseResult(domain: string, result: { valid: boolean; global
   });
 }
 
+// Background license check that doesn't block navigation
+async function checkLicenseInBackground(domain: string) {
+  try {
+    console.log('Starting background license check for:', domain);
+    const result = await checkLicenseByDomain(domain);
+    setCachedLicenseResult(domain, result);
+    console.log('Background license check completed for:', domain);
+  } catch (error) {
+    console.error('Background license check failed for:', domain, error);
+  }
+}
 
 function handleLicenseResult(
   licenseResult: { valid: boolean; globallyVerified?: boolean; error?: string; },
@@ -314,11 +328,18 @@ async function checkLicenseByDomain(domain: string): Promise<{valid: boolean, gl
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // Safari-specific headers to prevent aggressive caching
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         },
         body: JSON.stringify({
-          domain: domain
+          domain: domain,
+          timestamp: Date.now() // Add timestamp to prevent Safari caching
         }),
-        signal: controller.signal
+        signal: controller.signal,
+        // Safari-specific cache prevention
+        cache: 'no-store'
       });
       
       clearTimeout(timeoutId);

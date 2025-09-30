@@ -147,15 +147,6 @@ export default function LicenseSetupPage() {
           
           if (globalSetupResponse.ok) {
             console.log('License globally activated - will work across all browsers now');
-            
-            // Store license session in localStorage for 24 hours
-            const licenseSession = {
-              domain: currentDomain || window.location.hostname,
-              verified: true,
-              expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24 hours
-            };
-            localStorage.setItem('domain_license_session', JSON.stringify(licenseSession));
-            
             // Redirect to home page
             router.push('/');
             router.refresh();
