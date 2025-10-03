@@ -263,7 +263,7 @@ export default function ProductDetails() {
             <img
               src={currentImage}
               alt={product.name}
-              className="w-full h-64 object-cover rounded-lg"
+              className="rounded-lg"
               onError={() => handleImageError(selectedImageIndex)}
             />
           )}
