@@ -148,13 +148,31 @@ export function normalizeVariantOptions(variantOptions: any): { [key: string]: s
 }
 
 /**
- * Normalize product images array
+ * Normalize product images array and sort by sortOrder
  */
 export function normalizeProductImages(images: any): string[] {
   const parsed = deepParseJSON(images);
   
   if (Array.isArray(parsed)) {
-    return parsed.filter(img => typeof img === 'string' && img.trim() !== '');
+    // Handle new format with sortOrder
+    const imageObjects = parsed.map((img: any, index: number) => {
+      if (typeof img === 'string' && img.trim() !== '') {
+        // Legacy format: just URL strings
+        return { url: img, sortOrder: index };
+      } else if (img && typeof img === 'object' && img.url) {
+        // New format: objects with url and sortOrder
+        return { 
+          url: img.url, 
+          sortOrder: typeof img.sortOrder === 'number' ? img.sortOrder : index 
+        };
+      }
+      return null;
+    }).filter((item): item is {url: string, sortOrder: number} => item !== null);
+    
+    // Sort by sortOrder and return just the URLs
+    return imageObjects
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map(img => img.url);
   }
   
   return [];

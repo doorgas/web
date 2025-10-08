@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { products, categories, productInventory, productVariants } from '@/lib/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { normalizeProductImages, normalizeProductTags } from '@/utils/jsonUtils';
 
 export async function GET(req: NextRequest) {
   try {
@@ -94,55 +95,11 @@ export async function GET(req: NextRequest) {
       let images: string[] = [];
       let tags: string[] = [];
       
-      try {
-        if (item.product.images) {
-          let imageData = item.product.images;
-          
-          // Handle string data (which is common from database)
-          if (typeof imageData === 'string') {
-            // This handles the double-encoded JSON format from database
-            // Example: "\"[\\\"url\\\"]\"" -> ["url"]
-            try {
-              // First, parse the outer quotes
-              imageData = JSON.parse(imageData);
-              // Then parse the inner JSON array
-              if (typeof imageData === 'string') {
-                imageData = JSON.parse(imageData);
-              }
-            } catch (e) {
-              // If parsing fails, maybe it's just a URL string
-              if (typeof imageData === 'string' && (imageData.includes('http') || imageData.includes('/'))) {
-                // Extract URL from malformed JSON
-                const urlMatch = imageData.match(/https?:\/\/[^\\"]+/);
-                if (urlMatch) {
-                  imageData = [urlMatch[0]];
-                } else {
-                  imageData = [];
-                }
-              } else {
-                imageData = [];
-              }
-            }
-          }
-          
-          images = Array.isArray(imageData) ? imageData : (imageData ? [imageData] : []);
-        }
-      } catch (e) {
-        console.warn('Failed to parse product images:', e);
-        images = [];
-      }
+      // Parse images using the normalization utility (handles sortOrder)
+      images = normalizeProductImages(item.product.images);
 
-      try {
-        if (item.product.tags) {
-          const tagData = typeof item.product.tags === 'string' 
-            ? JSON.parse(item.product.tags) 
-            : item.product.tags;
-          tags = Array.isArray(tagData) ? tagData : [];
-        }
-      } catch (e) {
-        console.warn('Failed to parse product tags:', e);
-        tags = [];
-      }
+      // Parse tags using the normalization utility
+      tags = normalizeProductTags(item.product.tags);
 
       // Calculate stock status based on product type
       let inStock = false;
