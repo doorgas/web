@@ -23,6 +23,12 @@ interface LoyaltySettings {
   redemptionMinimum: number;
 }
 
+interface OrderSettings {
+  minimumOrderValue: number;
+  deliveryFee: number;
+  shippingFee: number;
+}
+
 interface CustomerPoints {
   availablePoints: number;
   totalPointsEarned: number;
@@ -57,6 +63,7 @@ interface CheckoutFormWithDataProps {
   total: number;
   loyaltySettings: LoyaltySettings;
   customerPoints: CustomerPoints;
+  orderSettings: OrderSettings;
   onSubmit: (data: CheckoutData) => void;
 }
 
@@ -70,7 +77,7 @@ interface PickupLocation {
   isActive: boolean;
 }
 
-export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, onSubmit }: CheckoutFormWithDataProps) {
+export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, orderSettings, onSubmit }: CheckoutFormWithDataProps) {
   const { state } = useCart();
   const [paymentMethod, setPaymentMethod] = useState<'cod'>('cod');
   const [orderType, setOrderType] = useState<'delivery' | 'pickup'>('delivery');
@@ -98,6 +105,9 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [pointsDiscountAmount, setPointsDiscountAmount] = useState(0);
   const [useAllPoints, setUseAllPoints] = useState(false);
+  
+  // Order validation state
+  const [orderValidationError, setOrderValidationError] = useState<string>('');
 
   // Fetch pickup locations when pickup is selected
   useEffect(() => {
@@ -253,7 +263,16 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
     onSubmit(checkoutData);
   };
 
-  const finalTotal = total - pointsDiscountAmount;
+  // Calculate fees based on order type
+  const deliveryFee = orderType === 'delivery' ? orderSettings.deliveryFee : 0;
+  const shippingFee = orderSettings.shippingFee;
+  const subtotal = total;
+  const totalWithFees = subtotal + deliveryFee + shippingFee;
+  const finalTotal = totalWithFees - pointsDiscountAmount;
+  
+  // Validate minimum order value
+  const meetsMinimumOrder = subtotal >= orderSettings.minimumOrderValue;
+  
   const canUsePoints = loyaltySettings.enabled && 
                        customerPoints.availablePoints >= loyaltySettings.redemptionMinimum &&
                        total >= loyaltySettings.minimumOrder;
@@ -329,8 +348,20 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
         <CardContent className="space-y-4">
           <div className="flex justify-between">
             <span>Subtotal</span>
-            <span>${total.toFixed(2)}</span>
+            <span>${subtotal.toFixed(2)}</span>
           </div>
+          {deliveryFee > 0 && (
+            <div className="flex justify-between">
+              <span>Delivery Fee</span>
+              <span>${deliveryFee.toFixed(2)}</span>
+            </div>
+          )}
+          {shippingFee > 0 && (
+            <div className="flex justify-between">
+              <span>Shipping Fee</span>
+              <span>${shippingFee.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between">
             <span>Tax</span>
             <span>$0.00</span>
@@ -347,6 +378,16 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
               <span>${finalTotal.toFixed(2)}</span>
             </div>
           </div>
+          {!meetsMinimumOrder && orderSettings.minimumOrderValue > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4">
+              <p className="text-red-700 text-sm font-medium">
+                Minimum order value: ${orderSettings.minimumOrderValue.toFixed(2)}
+              </p>
+              <p className="text-red-600 text-xs mt-1">
+                Add ${(orderSettings.minimumOrderValue - subtotal).toFixed(2)} more to proceed
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -694,12 +735,23 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
       </Card>*/}
 
       {/* Submit Button */}
-      <Button type="submit" className="w-full" size="lg">
-        Place Order - ${finalTotal.toFixed(2)}
-        {pointsToEarn > 0 && (
-          <span className="ml-2 text-xs">
-            (+{pointsToEarn} pts)
-          </span>
+      <Button 
+        type="submit" 
+        className="w-full" 
+        size="lg"
+        disabled={!meetsMinimumOrder}
+      >
+        {meetsMinimumOrder ? (
+          <>
+            Place Order - ${finalTotal.toFixed(2)}
+            {pointsToEarn > 0 && (
+              <span className="ml-2 text-xs">
+                (+{pointsToEarn} pts)
+              </span>
+            )}
+          </>
+        ) : (
+          `Minimum order: $${orderSettings.minimumOrderValue.toFixed(2)}`
         )}
       </Button>
     </form>

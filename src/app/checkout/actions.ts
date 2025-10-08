@@ -134,6 +134,8 @@ export async function processCheckout(formData: FormData) {
       items: JSON.parse(formData.get('items') as string),
       total: parseFloat(formData.get('total') as string),
       subtotal: parseFloat(formData.get('subtotal') as string),
+      deliveryFee: parseFloat(formData.get('deliveryFee') as string || '0'),
+      shippingFee: parseFloat(formData.get('shippingFee') as string || '0'),
       paymentMethod: formData.get('paymentMethod') as string,
       orderType: formData.get('orderType') as string || 'delivery',
       customerInfo: JSON.parse(formData.get('customerInfo') as string),
@@ -146,12 +148,18 @@ export async function processCheckout(formData: FormData) {
 
     const orderId = uuidv4();
     const orderNumber = `ORD-${Date.now()}`;
-    const finalTotal = checkoutData.total - checkoutData.pointsDiscountAmount;
+    const finalTotal = checkoutData.total;
 
     // Check if database is configured
     if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASS || !process.env.DB_NAME) {
       console.log('⚠️ Database not configured - order cannot be processed');
       throw new Error('Database not configured');
+    }
+
+    // Get order settings to validate minimum order value
+    const orderSettings = await getOrderSettings();
+    if (checkoutData.subtotal < orderSettings.minimumOrderValue) {
+      throw new Error(`Minimum order value is $${orderSettings.minimumOrderValue.toFixed(2)}. Current order: $${checkoutData.subtotal.toFixed(2)}`);
     }
 
     // Redeem points if any
@@ -221,8 +229,8 @@ export async function processCheckout(formData: FormData) {
       fulfillmentStatus: 'pending',
       subtotal: checkoutData.subtotal.toString(),
       taxAmount: '0.00',
-      shippingAmount: '0.00',
-      discountAmount: '0.00',
+      shippingAmount: (checkoutData.deliveryFee + checkoutData.shippingFee).toString(),
+      discountAmount: checkoutData.pointsDiscountAmount.toString(),
       totalAmount: finalTotal.toString(),
       currency: 'USD',
       
@@ -367,7 +375,10 @@ export async function processCheckout(formData: FormData) {
       console.log(`\n=== LOYALTY POINTS EARNING ===`);
       console.log(`Settings: Rate=${loyaltySettings.earningRate}, Basis=${loyaltySettings.earningBasis}`);
       
-      const baseAmount = loyaltySettings.earningBasis === 'total' ? finalTotal : checkoutData.subtotal;
+      // Calculate points based on original behavior (before fees were added)
+      // Originally: total = subtotal + tax (where tax was 0), so total === subtotal
+      const originalTotal = checkoutData.subtotal; // This maintains the original behavior
+      const baseAmount = loyaltySettings.earningBasis === 'total' ? originalTotal : checkoutData.subtotal;
       const pointsToAward = Math.floor(baseAmount * loyaltySettings.earningRate);
       
       if (pointsToAward > 0 && baseAmount >= loyaltySettings.minimumOrder) {
@@ -474,11 +485,61 @@ export async function processCheckout(formData: FormData) {
       orderId,
       orderNumber,
       total: finalTotal,
-      pointsEarned: loyaltySettings.enabled ? Math.floor((loyaltySettings.earningBasis === 'total' ? finalTotal : checkoutData.subtotal) * loyaltySettings.earningRate) : 0
+      pointsEarned: loyaltySettings.enabled ? Math.floor(checkoutData.subtotal * loyaltySettings.earningRate) : 0
     };
 
   } catch (error) {
     console.error('Checkout processing error:', error);
     throw error;
+  }
+}
+
+// Get order settings directly from database
+export async function getOrderSettings() {
+  try {
+    if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASS || !process.env.DB_NAME) {
+      console.log('Database not configured, using default order settings');
+      return {
+        minimumOrderValue: 0,
+        deliveryFee: 0,
+        shippingFee: 0
+      };
+    }
+
+    const orderSettings = await db
+      .select()
+      .from(settings)
+      .where(
+        or(
+          eq(settings.key, 'order_minimum_order_value'),
+          eq(settings.key, 'order_delivery_fee'),
+          eq(settings.key, 'order_shipping_fee')
+        )
+      );
+
+    const settingsObj: { [key: string]: any } = {};
+    orderSettings.forEach(setting => {
+      let value: any = setting.value;
+      
+      // Parse numeric values
+      if (setting.type === 'number' || setting.key.includes('fee') || setting.key.includes('value')) {
+        value = parseFloat(value) || 0;
+      }
+      
+      settingsObj[setting.key] = value;
+    });
+
+    return {
+      minimumOrderValue: Number(settingsObj.order_minimum_order_value) || 0,
+      deliveryFee: Number(settingsObj.order_delivery_fee) || 0,
+      shippingFee: Number(settingsObj.order_shipping_fee) || 0
+    };
+  } catch (error) {
+    console.error('Error fetching order settings:', error);
+    return {
+      minimumOrderValue: 0,
+      deliveryFee: 0,
+      shippingFee: 0
+    };
   }
 }

@@ -50,9 +50,16 @@ export interface CheckoutData {
   useAllPoints?: boolean;
 }
 
+interface OrderSettings {
+  minimumOrderValue: number;
+  deliveryFee: number;
+  shippingFee: number;
+}
+
 interface CheckoutClientPageProps {
   loyaltySettings: LoyaltySettings;
   customerPoints: CustomerPoints;
+  orderSettings: OrderSettings;
   user: {
     id: string;
     name?: string | null;
@@ -60,7 +67,7 @@ interface CheckoutClientPageProps {
   };
 }
 
-export function CheckoutClientPage({ loyaltySettings, customerPoints, user }: CheckoutClientPageProps) {
+export function CheckoutClientPage({ loyaltySettings, customerPoints, orderSettings, user }: CheckoutClientPageProps) {
   const router = useRouter();
   const { toast } = useToast();
   const { state, clearCartWithToast } = useCart();
@@ -76,11 +83,19 @@ export function CheckoutClientPage({ loyaltySettings, customerPoints, user }: Ch
     setIsProcessing(true);
     
     try {
+      // Calculate fees
+      const deliveryFee = data.orderType === 'delivery' ? orderSettings.deliveryFee : 0;
+      const shippingFee = orderSettings.shippingFee;
+      const totalWithFees = total + deliveryFee + shippingFee;
+      const finalTotal = totalWithFees - (data.pointsDiscountAmount || 0);
+      
       // Create FormData for server action
       const formData = new FormData();
       formData.append('items', JSON.stringify(state.items));
-      formData.append('total', total.toString());
+      formData.append('total', finalTotal.toString());
       formData.append('subtotal', subtotal.toString());
+      formData.append('deliveryFee', deliveryFee.toString());
+      formData.append('shippingFee', shippingFee.toString());
       formData.append('paymentMethod', data.paymentMethod);
       formData.append('orderType', data.orderType);
       formData.append('customerInfo', JSON.stringify(data.customerInfo));
@@ -175,6 +190,7 @@ export function CheckoutClientPage({ loyaltySettings, customerPoints, user }: Ch
             total={total}
             loyaltySettings={loyaltySettings}
             customerPoints={customerPoints}
+            orderSettings={orderSettings}
             onSubmit={handleCheckoutSubmit}
           />
         )}

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getLoyaltySettings, getCustomerPoints } from './actions';
+import { getLoyaltySettings, getCustomerPoints, getOrderSettings } from './actions';
 import { CheckoutClientPage } from './checkout-client';
 
 export default async function CheckoutPage() {
@@ -12,13 +12,15 @@ export default async function CheckoutPage() {
     redirect('/login');
   }
 
-  // Fetch loyalty data directly from database
+  // Fetch loyalty data and order settings directly from database
   const loyaltySettings = await getLoyaltySettings();
   const customerPoints = await getCustomerPoints(session.user.id);
+  const orderSettings = await getOrderSettings();
 
-  console.log('✅ Server-side loyalty data loaded for checkout:', {
-    settings: loyaltySettings,
-    points: customerPoints
+  console.log('✅ Server-side data loaded for checkout:', {
+    loyaltySettings,
+    customerPoints,
+    orderSettings
   });
 
   // Pass server-side data to client component
@@ -26,6 +28,7 @@ export default async function CheckoutPage() {
     <CheckoutClientPage 
       loyaltySettings={loyaltySettings}
       customerPoints={customerPoints}
+      orderSettings={orderSettings}
       user={session.user}
     />
   );
