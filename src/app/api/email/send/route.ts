@@ -29,7 +29,14 @@ export async function POST(req: Request) {
   await db.delete(verification_tokens).where(eq(verification_tokens.identifier, to));
   await db.insert(verification_tokens).values({ identifier: to, token: hashedToken, otp: hashedOtp, expires: expiresAt });
 
-  const emailMessage = `Your OTP is: ${otp}`;
+  const emailMessage = `Your verification code is: ${otp}
+
+You can also verify your email by clicking the link below:
+${verificationLink}
+
+This code and link will expire in 15 minutes.
+
+If you didn't request this verification, please ignore this email.`;
 
   if (!to || !subject) {
     return NextResponse.json({ error: 'Missing required fields (to, subject)' }, { status: 400 });
