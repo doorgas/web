@@ -638,6 +638,7 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
                 initialLatitude={address.latitude}
                 initialLongitude={address.longitude}
                 height="350px"
+                required={true}
               />
             </div>
           ) : (

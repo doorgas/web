@@ -20,6 +20,7 @@ interface GoogleMapsLocationPickerProps {
   initialLongitude?: number;
   className?: string;
   height?: string;
+  required?: boolean;
 }
 
 export function GoogleMapsLocationPicker({
@@ -28,7 +29,8 @@ export function GoogleMapsLocationPicker({
   initialLatitude,
   initialLongitude,
   className = '',
-  height = '400px'
+  height = '400px',
+  required = false
 }: GoogleMapsLocationPickerProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
@@ -271,7 +273,9 @@ export function GoogleMapsLocationPicker({
     <div className={`space-y-4 ${className}`}>
       {/* Search Input */}
       <div className="space-y-2">
-        <Label htmlFor="location-search">Search Address</Label>
+        <Label htmlFor="location-search">
+          Search Address{required && <span className="text-red-500 ml-1">*</span>}
+        </Label>
         <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-muted-foreground" />
@@ -284,6 +288,7 @@ export function GoogleMapsLocationPicker({
             onChange={(e) => setSearchValue(e.target.value)}
             placeholder="Search for an address..."
             className="pl-10 pr-12"
+            required={required}
           />
           <Button
             type="button"
