@@ -231,26 +231,26 @@ export default function DomainVerificationMonitor({
     };
   }, [checkInterval, pathname, isInitialized]);
 
-  // Handle page visibility changes - check domain when page becomes visible
-  useEffect(() => {
-    if (shouldSkipDomainCheck() || typeof window === 'undefined') return;
+  // DISABLED: Handle page visibility changes - check domain when page becomes visible
+  // useEffect(() => {
+  //   if (shouldSkipDomainCheck() || typeof window === 'undefined') return;
 
-    const handleVisibilityChange = () => {
-      if (!document.hidden && isInitialized) {
-        // Check if it's been more than the check interval since last check
-        const timeSinceLastCheck = Date.now() - lastCheckTime;
-        if (timeSinceLastCheck > checkInterval) {
-          performDomainCheck();
-        }
-      }
-    };
+  //   const handleVisibilityChange = () => {
+  //     if (!document.hidden && isInitialized) {
+  //       // Check if it's been more than the check interval since last check
+  //       const timeSinceLastCheck = Date.now() - lastCheckTime;
+  //       if (timeSinceLastCheck > checkInterval) {
+  //         performDomainCheck();
+  //       }
+  //     }
+  //   };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+  //   document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [checkInterval, pathname, isInitialized, lastCheckTime]);
+  //   return () => {
+  //     document.removeEventListener('visibilitychange', handleVisibilityChange);
+  //   };
+  // }, [checkInterval, pathname, isInitialized, lastCheckTime]);
 
   // Show loading state during initial domain verification
   if (!isInitialized && !shouldSkipDomainCheck()) {

@@ -50,18 +50,18 @@ const ChatList: React.FC<ChatListProps> = ({ userId }) => {
       fetchConversations(false); // Don't show loading on polling
     }, 5000);
 
-    // Listen for page visibility changes to refresh when user returns
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        // Page became visible, refresh conversations
-        fetchConversations(false);
-      }
-    };
+    // DISABLED: Listen for page visibility changes to refresh when user returns
+    // const handleVisibilityChange = () => {
+    //   if (!document.hidden) {
+    //     // Page became visible, refresh conversations
+    //     fetchConversations(false);
+    //   }
+    // };
 
-    // Listen for window focus to refresh when user returns to the page
-    const handleWindowFocus = () => {
-      fetchConversations(false);
-    };
+    // DISABLED: Listen for window focus to refresh when user returns to the page
+    // const handleWindowFocus = () => {
+    //   fetchConversations(false);
+    // };
 
     // Listen for storage changes (when messages are marked as read)
     const handleStorageChange = (e: StorageEvent) => {
@@ -71,14 +71,14 @@ const ChatList: React.FC<ChatListProps> = ({ userId }) => {
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleWindowFocus);
+    // document.addEventListener('visibilitychange', handleVisibilityChange);
+    // window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleWindowFocus);
+      // document.removeEventListener('visibilitychange', handleVisibilityChange);
+      // window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);

@@ -159,7 +159,7 @@ export default function LicenseSetupPage() {
             
             // Redirect to home page
             router.push('/');
-            router.refresh();
+            // router.refresh(); // DISABLED: Prevent automatic refresh
             return;
           } else {
             const globalError = await globalSetupResponse.json();

@@ -35,7 +35,7 @@ export default function LicenseInvalidPage() {
       
       if (result.isValid) {
         router.push('/');
-        router.refresh();
+        // router.refresh(); // DISABLED: Prevent automatic refresh
       } else {
         // Update license status display
         const updatedStatus = getStoredLicenseStatus();

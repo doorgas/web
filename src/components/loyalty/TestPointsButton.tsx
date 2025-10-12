@@ -26,7 +26,7 @@ export function TestPointsButton() {
       
       if (result.success) {
         alert(`✅ Successfully awarded 100 points! New balance: ${result.newBalance}`);
-        router.refresh(); // Refresh the page to show updated points
+        // router.refresh(); // DISABLED: Prevent automatic refresh - page will update on next navigation
       } else {
         alert(`❌ Error: ${result.error}`);
       }

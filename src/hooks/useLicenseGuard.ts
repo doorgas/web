@@ -123,23 +123,23 @@ export function useLicenseGuard(options: UseLicenseGuardOptions = {}) {
     // Set up interval checking
     const intervalId = setInterval(performLicenseCheck, checkInterval);
 
-    // Check on window focus (catches domain changes when user returns to tab)
-    const handleFocus = () => {
-      performLicenseCheck();
-    };
+    // DISABLED: Check on window focus (catches domain changes when user returns to tab)
+    // const handleFocus = () => {
+    //   performLicenseCheck();
+    // };
 
-    // Check when domain might have changed (via popstate - back/forward)
-    const handlePopState = () => {
-      performLicenseCheck();
-    };
+    // DISABLED: Check when domain might have changed (via popstate - back/forward)
+    // const handlePopState = () => {
+    //   performLicenseCheck();
+    // };
 
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('popstate', handlePopState);
+    // window.addEventListener('focus', handleFocus);
+    // window.addEventListener('popstate', handlePopState);
 
     return () => {
       clearInterval(intervalId);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('popstate', handlePopState);
+      // window.removeEventListener('focus', handleFocus);
+      // window.removeEventListener('popstate', handlePopState);
     };
   }, [performLicenseCheck, checkInterval, skipCheck]);
 
