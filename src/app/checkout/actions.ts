@@ -544,63 +544,111 @@ export async function getOrderSettings() {
   }
 }
 
-// Get delivery status from API
+// Get delivery status directly from database
 export async function getDeliveryStatus() {
   try {
-    const response = await fetch('/api/settings/delivery', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASS || !process.env.DB_NAME) {
+      console.log('Database not configured, assuming delivery is disabled for safety');
+      return {
+        enabled: false,
+        message: 'Delivery is currently unavailable. Please contact support.',
+        timestamp: new Date().toISOString()
+      };
     }
 
-    const data = await response.json();
+    // Get delivery settings from database
+    const deliverySettings = await db
+      .select()
+      .from(settings)
+      .where(
+        or(
+          eq(settings.key, 'delivery_enabled'),
+          eq(settings.key, 'delivery_message')
+        )
+      );
+
+    let deliveryEnabled = false; // Default to disabled for safety
+    let customMessage = 'Delivery is currently unavailable.';
+
+    // Parse existing settings
+    deliverySettings.forEach(setting => {
+      if (setting.key === 'delivery_enabled') {
+        try {
+          deliveryEnabled = setting.value === 'true';
+        } catch (error) {
+          console.error('Error parsing delivery enabled setting:', error);
+        }
+      } else if (setting.key === 'delivery_message') {
+        customMessage = setting.value || customMessage;
+      }
+    });
+
     return {
-      enabled: data.enabled,
-      message: data.message,
-      timestamp: data.timestamp
+      enabled: deliveryEnabled,
+      message: customMessage,
+      timestamp: new Date().toISOString()
     };
   } catch (error) {
-    console.error('Error fetching delivery status from API:', error);
-    // Return default enabled state in case of error to avoid breaking checkout
+    console.error('Error fetching delivery status from database:', error);
+    // Return disabled state in case of error for safety
     return {
-      enabled: true,
-      message: 'Delivery is currently available for all orders.',
+      enabled: false,
+      message: 'Delivery is currently unavailable due to a system error.',
       timestamp: new Date().toISOString()
     };
   }
 }
 
-// Get shipping status from API
+// Get shipping status directly from database
 export async function getShippingStatus() {
   try {
-    const response = await fetch('/api/settings/shipping', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASS || !process.env.DB_NAME) {
+      console.log('Database not configured, assuming shipping is disabled for safety');
+      return {
+        enabled: false,
+        message: 'Shipping is currently unavailable. Please contact support.',
+        timestamp: new Date().toISOString()
+      };
     }
 
-    const data = await response.json();
+    // Get shipping settings from database
+    const shippingSettings = await db
+      .select()
+      .from(settings)
+      .where(
+        or(
+          eq(settings.key, 'shipping_enabled'),
+          eq(settings.key, 'shipping_message')
+        )
+      );
+
+    let shippingEnabled = false; // Default to disabled for safety
+    let customMessage = 'Shipping is currently unavailable.';
+
+    // Parse existing settings
+    shippingSettings.forEach(setting => {
+      if (setting.key === 'shipping_enabled') {
+        try {
+          shippingEnabled = setting.value === 'true';
+        } catch (error) {
+          console.error('Error parsing shipping enabled setting:', error);
+        }
+      } else if (setting.key === 'shipping_message') {
+        customMessage = setting.value || customMessage;
+      }
+    });
+
     return {
-      enabled: data.enabled,
-      message: data.message,
-      timestamp: data.timestamp
+      enabled: shippingEnabled,
+      message: customMessage,
+      timestamp: new Date().toISOString()
     };
   } catch (error) {
-    console.error('Error fetching shipping status from API:', error);
-    // Return default enabled state in case of error to avoid breaking checkout
+    console.error('Error fetching shipping status from database:', error);
+    // Return disabled state in case of error for safety
     return {
-      enabled: true,
-      message: 'Shipping is currently available for all orders.',
+      enabled: false,
+      message: 'Shipping is currently unavailable due to a system error.',
       timestamp: new Date().toISOString()
     };
   }

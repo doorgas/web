@@ -94,41 +94,17 @@ interface PickupLocation {
 export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, orderSettings, shippingStatus, deliveryStatus, onSubmit }: CheckoutFormWithDataProps) {
   const { state } = useCart();
   const [paymentMethod, setPaymentMethod] = useState<'cod'>('cod');
-  const [orderType, setOrderType] = useState<'delivery' | 'pickup' | 'shipping'>('delivery');
+  const [orderType, setOrderType] = useState<'delivery' | 'pickup' | 'shipping'>('pickup');
 
-  // Set initial order type to first available option and handle disabled options
+  // Set initial order type to pickup (always available) and handle disabled options
   useEffect(() => {
-    // If current order type is disabled, switch to an available one
+    // If current order type is disabled, switch to pickup (always available)
     if (orderType === 'delivery' && !deliveryStatus.enabled) {
-      // If delivery is disabled, try pickup first, then shipping
-      if (shippingStatus.enabled) {
-        setOrderType('shipping');
-      } else {
-        setOrderType('pickup'); // Pickup is always available
-      }
+      setOrderType('pickup');
     } else if (orderType === 'shipping' && !shippingStatus.enabled) {
-      // If shipping is disabled, try delivery first, then pickup
-      if (deliveryStatus.enabled) {
-        setOrderType('delivery');
-      } else {
-        setOrderType('pickup'); // Pickup is always available
-      }
+      setOrderType('pickup');
     }
   }, [orderType, shippingStatus.enabled, deliveryStatus.enabled]);
-
-  // Set initial order type on component mount to first available option
-  useEffect(() => {
-    // Only run on initial load when we have status data
-    if (deliveryStatus && shippingStatus) {
-      if (deliveryStatus.enabled) {
-        setOrderType('delivery');
-      } else if (shippingStatus.enabled) {
-        setOrderType('shipping');
-      } else {
-        setOrderType('pickup'); // Fallback to pickup if both are disabled
-      }
-    }
-  }, [deliveryStatus?.enabled, shippingStatus?.enabled]); // Only run when status changes
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
   const [selectedPickupLocationId, setSelectedPickupLocationId] = useState<string>('');
   const [orderNotes, setOrderNotes] = useState('');
@@ -385,59 +361,6 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
         </CardContent>
       </Card>
 
-      {/* Order Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5" />
-            Order Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex justify-between">
-            <span>Subtotal</span>
-            <span>${subtotal.toFixed(2)}</span>
-          </div>
-          {deliveryFee > 0 && (
-            <div className="flex justify-between">
-              <span>Delivery Fee</span>
-              <span>${deliveryFee.toFixed(2)}</span>
-            </div>
-          )}
-          {shippingFee > 0 && orderType === 'shipping' && (
-            <div className="flex justify-between">
-              <span>Shipping Fee</span>
-              <span>${shippingFee.toFixed(2)}</span>
-            </div>
-          )}
-          <div className="flex justify-between">
-            <span>Tax</span>
-            <span>$0.00</span>
-          </div>
-          {pointsDiscountAmount > 0 && (
-            <div className="flex justify-between text-green-600">
-              <span>Points Discount (-{pointsToRedeem} pts)</span>
-              <span>-${pointsDiscountAmount.toFixed(2)}</span>
-            </div>
-          )}
-          <div className="border-t pt-2">
-            <div className="flex justify-between font-bold text-lg">
-              <span>Total</span>
-              <span>${finalTotal.toFixed(2)}</span>
-            </div>
-          </div>
-          {!meetsMinimumOrder && orderSettings.minimumOrderValue > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4">
-              <p className="text-red-700 text-sm font-medium">
-                Minimum order value: ${orderSettings.minimumOrderValue.toFixed(2)}
-              </p>
-              <p className="text-red-600 text-xs mt-1">
-                Add ${(orderSettings.minimumOrderValue - subtotal).toFixed(2)} more to proceed
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Loyalty Points Section */}
       {loyaltySettings.enabled && (
@@ -537,7 +460,14 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
           )}
         </CardHeader>
         <CardContent>
-          <RadioGroup value={orderType} onValueChange={(value) => setOrderType(value as 'delivery' | 'pickup' | 'shipping')}>
+          <RadioGroup value={orderType} onValueChange={(value) => setOrderType(value as 'delivery' | 'pickup' | 'shipping')}>            {/* Pickup option - always available - moved to top as default */}
+            <div className="flex items-center space-x-2 p-2 rounded-md transition-colors hover:bg-gray-50">
+              <RadioGroupItem value="pickup" id="pickup" />
+              <Label htmlFor="pickup" className="flex items-center gap-2 cursor-pointer">
+                <Store className="h-4 w-4" />
+                Pickup
+              </Label>
+            </div>
             {/* Delivery option - show only if enabled or show as disabled */}
             <div className={`flex items-center space-x-2 p-2 rounded-md transition-colors ${
               !deliveryStatus.enabled ? 'bg-gray-50 opacity-60' : 'hover:bg-gray-50'
@@ -560,14 +490,6 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
                 {!deliveryStatus.enabled && (
                   <span className="text-xs text-red-500 ml-1 font-medium">(Disabled)</span>
                 )}
-              </Label>
-            </div>
-            {/* Pickup option - always available */}
-            <div className="flex items-center space-x-2 p-2 rounded-md transition-colors hover:bg-gray-50">
-              <RadioGroupItem value="pickup" id="pickup" />
-              <Label htmlFor="pickup" className="flex items-center gap-2 cursor-pointer">
-                <Store className="h-4 w-4" />
-                Pickup
               </Label>
             </div>
             {/* Shipping option - show only if enabled or show as disabled */}
@@ -850,6 +772,60 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
           />
         </CardContent>
       </Card>*/}
+
+      {/* Order Summary - Moved before Submit Button */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            Order Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex justify-between">
+            <span>Subtotal</span>
+            <span>${subtotal.toFixed(2)}</span>
+          </div>
+          {deliveryFee > 0 && (
+            <div className="flex justify-between">
+              <span>Delivery Fee</span>
+              <span>${deliveryFee.toFixed(2)}</span>
+            </div>
+          )}
+          {shippingFee > 0 && orderType === 'shipping' && (
+            <div className="flex justify-between">
+              <span>Shipping Fee</span>
+              <span>${shippingFee.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span>Tax</span>
+            <span>$0.00</span>
+          </div>
+          {pointsDiscountAmount > 0 && (
+            <div className="flex justify-between text-green-600">
+              <span>Points Discount (-{pointsToRedeem} pts)</span>
+              <span>-${pointsDiscountAmount.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="border-t pt-2">
+            <div className="flex justify-between font-bold text-lg">
+              <span>Total</span>
+              <span>${finalTotal.toFixed(2)}</span>
+            </div>
+          </div>
+          {!meetsMinimumOrder && orderSettings.minimumOrderValue > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4">
+              <p className="text-red-700 text-sm font-medium">
+                Minimum order value: ${orderSettings.minimumOrderValue.toFixed(2)}
+              </p>
+              <p className="text-red-600 text-xs mt-1">
+                Add ${(orderSettings.minimumOrderValue - subtotal).toFixed(2)} more to proceed
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Submit Button */}
       <Button 
