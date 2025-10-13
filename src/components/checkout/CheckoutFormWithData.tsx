@@ -96,20 +96,39 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
   const [paymentMethod, setPaymentMethod] = useState<'cod'>('cod');
   const [orderType, setOrderType] = useState<'delivery' | 'pickup' | 'shipping'>('delivery');
 
-  // Reset order type if shipping or delivery is selected but disabled
+  // Set initial order type to first available option and handle disabled options
   useEffect(() => {
-    if (orderType === 'shipping' && !shippingStatus.enabled) {
+    // If current order type is disabled, switch to an available one
+    if (orderType === 'delivery' && !deliveryStatus.enabled) {
+      // If delivery is disabled, try pickup first, then shipping
+      if (shippingStatus.enabled) {
+        setOrderType('shipping');
+      } else {
+        setOrderType('pickup'); // Pickup is always available
+      }
+    } else if (orderType === 'shipping' && !shippingStatus.enabled) {
       // If shipping is disabled, try delivery first, then pickup
       if (deliveryStatus.enabled) {
         setOrderType('delivery');
       } else {
-        setOrderType('pickup');
+        setOrderType('pickup'); // Pickup is always available
       }
-    } else if (orderType === 'delivery' && !deliveryStatus.enabled) {
-      // If delivery is disabled, try pickup first, then shipping
-      setOrderType('pickup');
     }
   }, [orderType, shippingStatus.enabled, deliveryStatus.enabled]);
+
+  // Set initial order type on component mount to first available option
+  useEffect(() => {
+    // Only run on initial load when we have status data
+    if (deliveryStatus && shippingStatus) {
+      if (deliveryStatus.enabled) {
+        setOrderType('delivery');
+      } else if (shippingStatus.enabled) {
+        setOrderType('shipping');
+      } else {
+        setOrderType('pickup'); // Fallback to pickup if both are disabled
+      }
+    }
+  }, [deliveryStatus?.enabled, shippingStatus?.enabled]); // Only run when status changes
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
   const [selectedPickupLocationId, setSelectedPickupLocationId] = useState<string>('');
   const [orderNotes, setOrderNotes] = useState('');
@@ -506,11 +525,23 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
       <Card>
         <CardHeader>
           <CardTitle>Order Type</CardTitle>
+          {(!deliveryStatus.enabled || !shippingStatus.enabled) && (
+            <p className="text-sm text-muted-foreground mt-1">
+              {!deliveryStatus.enabled && !shippingStatus.enabled 
+                ? 'Only pickup is currently available'
+                : !deliveryStatus.enabled 
+                ? 'Delivery is currently unavailable'
+                : 'Shipping is currently unavailable'
+              }
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <RadioGroup value={orderType} onValueChange={(value) => setOrderType(value as 'delivery' | 'pickup' | 'shipping')}>
             {/* Delivery option - show only if enabled or show as disabled */}
-            <div className="flex items-center space-x-2">
+            <div className={`flex items-center space-x-2 p-2 rounded-md transition-colors ${
+              !deliveryStatus.enabled ? 'bg-gray-50 opacity-60' : 'hover:bg-gray-50'
+            }`}>
               <RadioGroupItem 
                 value="delivery" 
                 id="delivery" 
@@ -519,25 +550,30 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
               <Label 
                 htmlFor="delivery" 
                 className={`flex items-center gap-2 ${
-                  !deliveryStatus.enabled ? 'text-muted-foreground cursor-not-allowed' : ''
+                  !deliveryStatus.enabled ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer'
                 }`}
               >
-                <Truck className="h-4 w-4" />
+                <Truck className={`h-4 w-4 ${
+                  !deliveryStatus.enabled ? 'text-gray-400' : ''
+                }`} />
                 Delivery
                 {!deliveryStatus.enabled && (
-                  <span className="text-xs text-red-500 ml-1">(Disabled)</span>
+                  <span className="text-xs text-red-500 ml-1 font-medium">(Disabled)</span>
                 )}
               </Label>
             </div>
-            <div className="flex items-center space-x-2">
+            {/* Pickup option - always available */}
+            <div className="flex items-center space-x-2 p-2 rounded-md transition-colors hover:bg-gray-50">
               <RadioGroupItem value="pickup" id="pickup" />
-              <Label htmlFor="pickup" className="flex items-center gap-2">
+              <Label htmlFor="pickup" className="flex items-center gap-2 cursor-pointer">
                 <Store className="h-4 w-4" />
                 Pickup
               </Label>
             </div>
             {/* Shipping option - show only if enabled or show as disabled */}
-            <div className="flex items-center space-x-2">
+            <div className={`flex items-center space-x-2 p-2 rounded-md transition-colors ${
+              !shippingStatus.enabled ? 'bg-gray-50 opacity-60' : 'hover:bg-gray-50'
+            }`}>
               <RadioGroupItem 
                 value="shipping" 
                 id="shipping" 
@@ -546,13 +582,15 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
               <Label 
                 htmlFor="shipping" 
                 className={`flex items-center gap-2 ${
-                  !shippingStatus.enabled ? 'text-muted-foreground cursor-not-allowed' : ''
+                  !shippingStatus.enabled ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer'
                 }`}
               >
-                <Package2 className="h-4 w-4" />
+                <Package2 className={`h-4 w-4 ${
+                  !shippingStatus.enabled ? 'text-gray-400' : ''
+                }`} />
                 Shipping
                 {!shippingStatus.enabled && (
-                  <span className="text-xs text-red-500 ml-1">(Disabled)</span>
+                  <span className="text-xs text-red-500 ml-1 font-medium">(Disabled)</span>
                 )}
               </Label>
             </div>
