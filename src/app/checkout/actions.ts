@@ -229,7 +229,7 @@ export async function processCheckout(formData: FormData) {
       fulfillmentStatus: 'pending',
       subtotal: checkoutData.subtotal.toString(),
       taxAmount: '0.00',
-      shippingAmount: (checkoutData.deliveryFee + checkoutData.shippingFee).toString(),
+      shippingAmount: (checkoutData.deliveryFee + checkoutData.shippingFee).toString(), // Only one will be non-zero based on order type
       discountAmount: checkoutData.pointsDiscountAmount.toString(),
       totalAmount: finalTotal.toString(),
       currency: 'USD',
@@ -246,7 +246,7 @@ export async function processCheckout(formData: FormData) {
       pointsToRedeem: checkoutData.pointsToRedeem,
       pointsDiscountAmount: checkoutData.pointsDiscountAmount.toString(),
       
-      // Addresses (only for delivery orders)
+      // Addresses (for delivery and shipping orders)
       billingFirstName: checkoutData.customerInfo.name?.split(' ')[0] || null,
       billingLastName: checkoutData.customerInfo.name?.split(' ').slice(1).join(' ') || null,
       billingAddress1: checkoutData.deliveryAddress?.street || null,
@@ -544,52 +544,59 @@ export async function getOrderSettings() {
   }
 }
 
-// Get shipping status directly from database
-export async function getShippingStatus() {
+// Get delivery status from API
+export async function getDeliveryStatus() {
   try {
-    if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASS || !process.env.DB_NAME) {
-      console.log('Database not configured, assuming shipping is enabled');
-      return {
-        enabled: true,
-        message: 'Shipping is currently available for all orders.',
-        timestamp: new Date().toISOString()
-      };
-    }
-
-    // Get shipping settings from database
-    const shippingSettings = await db
-      .select()
-      .from(settings)
-      .where(
-        or(
-          eq(settings.key, 'shipping_enabled'),
-          eq(settings.key, 'shipping_message')
-        )
-      );
-
-    let shippingEnabled = true; // Default to enabled
-    let customMessage = 'Shipping is currently available for all orders.'; // Default message
-
-    // Parse existing settings
-    shippingSettings.forEach(setting => {
-      if (setting.key === 'shipping_enabled') {
-        try {
-          shippingEnabled = setting.value === 'true';
-        } catch (error) {
-          console.error('Error parsing shipping enabled setting:', error);
-        }
-      } else if (setting.key === 'shipping_message') {
-        customMessage = setting.value || customMessage;
-      }
+    const response = await fetch('/api/settings/delivery', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
 
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
     return {
-      enabled: shippingEnabled,
-      message: customMessage,
-      timestamp: new Date().toISOString()
+      enabled: data.enabled,
+      message: data.message,
+      timestamp: data.timestamp
     };
   } catch (error) {
-    console.error('Error fetching shipping status from database:', error);
+    console.error('Error fetching delivery status from API:', error);
+    // Return default enabled state in case of error to avoid breaking checkout
+    return {
+      enabled: true,
+      message: 'Delivery is currently available for all orders.',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+// Get shipping status from API
+export async function getShippingStatus() {
+  try {
+    const response = await fetch('/api/settings/shipping', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      enabled: data.enabled,
+      message: data.message,
+      timestamp: data.timestamp
+    };
+  } catch (error) {
+    console.error('Error fetching shipping status from API:', error);
     // Return default enabled state in case of error to avoid breaking checkout
     return {
       enabled: true,

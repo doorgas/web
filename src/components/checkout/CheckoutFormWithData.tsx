@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-import { Truck, DollarSign, Gift, Star, User, Mail, Phone, MapPin, Package, Store } from 'lucide-react';
+import { Truck, DollarSign, Gift, Star, User, Mail, Phone, MapPin, Package, Store, Package2 } from 'lucide-react';
 import { useCart } from '@/contexts/CartContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,7 +37,7 @@ interface CustomerPoints {
 
 interface CheckoutData {
   paymentMethod: 'cod';
-  orderType: 'delivery' | 'pickup';
+  orderType: 'delivery' | 'pickup' | 'shipping';
   customerInfo: {
     name: string;
     email: string;
@@ -59,11 +59,25 @@ interface CheckoutData {
   useAllPoints?: boolean;
 }
 
+interface ShippingStatus {
+  enabled: boolean;
+  message: string;
+  timestamp: string;
+}
+
+interface DeliveryStatus {
+  enabled: boolean;
+  message: string;
+  timestamp: string;
+}
+
 interface CheckoutFormWithDataProps {
   total: number;
   loyaltySettings: LoyaltySettings;
   customerPoints: CustomerPoints;
   orderSettings: OrderSettings;
+  shippingStatus: ShippingStatus;
+  deliveryStatus: DeliveryStatus;
   onSubmit: (data: CheckoutData) => void;
 }
 
@@ -77,10 +91,25 @@ interface PickupLocation {
   isActive: boolean;
 }
 
-export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, orderSettings, onSubmit }: CheckoutFormWithDataProps) {
+export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, orderSettings, shippingStatus, deliveryStatus, onSubmit }: CheckoutFormWithDataProps) {
   const { state } = useCart();
   const [paymentMethod, setPaymentMethod] = useState<'cod'>('cod');
-  const [orderType, setOrderType] = useState<'delivery' | 'pickup'>('delivery');
+  const [orderType, setOrderType] = useState<'delivery' | 'pickup' | 'shipping'>('delivery');
+
+  // Reset order type if shipping or delivery is selected but disabled
+  useEffect(() => {
+    if (orderType === 'shipping' && !shippingStatus.enabled) {
+      // If shipping is disabled, try delivery first, then pickup
+      if (deliveryStatus.enabled) {
+        setOrderType('delivery');
+      } else {
+        setOrderType('pickup');
+      }
+    } else if (orderType === 'delivery' && !deliveryStatus.enabled) {
+      // If delivery is disabled, try pickup first, then shipping
+      setOrderType('pickup');
+    }
+  }, [orderType, shippingStatus.enabled, deliveryStatus.enabled]);
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
   const [selectedPickupLocationId, setSelectedPickupLocationId] = useState<string>('');
   const [orderNotes, setOrderNotes] = useState('');
@@ -252,7 +281,7 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
       paymentMethod,
       orderType,
       customerInfo,
-      deliveryAddress: orderType === 'delivery' ? address : undefined,
+      deliveryAddress: (orderType === 'delivery' || orderType === 'shipping') ? address : undefined,
       pickupLocationId: orderType === 'pickup' ? selectedPickupLocationId : undefined,
       orderNotes,
       pointsToRedeem,
@@ -263,9 +292,9 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
     onSubmit(checkoutData);
   };
 
-  // Calculate fees based on order type
+  // Calculate fees based on order type - only one fee applies
   const deliveryFee = orderType === 'delivery' ? orderSettings.deliveryFee : 0;
-  const shippingFee = orderSettings.shippingFee;
+  const shippingFee = orderType === 'shipping' ? orderSettings.shippingFee : 0;
   const subtotal = total;
   const totalWithFees = subtotal + deliveryFee + shippingFee;
   const finalTotal = totalWithFees - pointsDiscountAmount;
@@ -356,7 +385,7 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
               <span>${deliveryFee.toFixed(2)}</span>
             </div>
           )}
-          {shippingFee > 0 && (
+          {shippingFee > 0 && orderType === 'shipping' && (
             <div className="flex justify-between">
               <span>Shipping Fee</span>
               <span>${shippingFee.toFixed(2)}</span>
@@ -479,12 +508,25 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
           <CardTitle>Order Type</CardTitle>
         </CardHeader>
         <CardContent>
-          <RadioGroup value={orderType} onValueChange={(value) => setOrderType(value as 'delivery' | 'pickup')}>
+          <RadioGroup value={orderType} onValueChange={(value) => setOrderType(value as 'delivery' | 'pickup' | 'shipping')}>
+            {/* Delivery option - show only if enabled or show as disabled */}
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="delivery" id="delivery" />
-              <Label htmlFor="delivery" className="flex items-center gap-2">
+              <RadioGroupItem 
+                value="delivery" 
+                id="delivery" 
+                disabled={!deliveryStatus.enabled}
+              />
+              <Label 
+                htmlFor="delivery" 
+                className={`flex items-center gap-2 ${
+                  !deliveryStatus.enabled ? 'text-muted-foreground cursor-not-allowed' : ''
+                }`}
+              >
                 <Truck className="h-4 w-4" />
                 Delivery
+                {!deliveryStatus.enabled && (
+                  <span className="text-xs text-red-500 ml-1">(Disabled)</span>
+                )}
               </Label>
             </div>
             <div className="flex items-center space-x-2">
@@ -494,7 +536,39 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
                 Pickup
               </Label>
             </div>
+            {/* Shipping option - show only if enabled or show as disabled */}
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem 
+                value="shipping" 
+                id="shipping" 
+                disabled={!shippingStatus.enabled}
+              />
+              <Label 
+                htmlFor="shipping" 
+                className={`flex items-center gap-2 ${
+                  !shippingStatus.enabled ? 'text-muted-foreground cursor-not-allowed' : ''
+                }`}
+              >
+                <Package2 className="h-4 w-4" />
+                Shipping
+                {!shippingStatus.enabled && (
+                  <span className="text-xs text-red-500 ml-1">(Disabled)</span>
+                )}
+              </Label>
+            </div>
           </RadioGroup>
+          {/* Show delivery status message if delivery is disabled and selected */}
+          {!deliveryStatus.enabled && orderType === 'delivery' && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm">{deliveryStatus.message}</p>
+            </div>
+          )}
+          {/* Show shipping status message if shipping is disabled and selected */}
+          {!shippingStatus.enabled && orderType === 'shipping' && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm">{shippingStatus.message}</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -595,14 +669,18 @@ export function CheckoutFormWithData({ total, loyaltySettings, customerPoints, o
         </CardContent>
       </Card>
 
-      {/* Delivery Address - Only show for delivery orders */}
-      {orderType === 'delivery' && (
+      {/* Delivery/Shipping Address - Show for delivery and shipping orders */}
+      {(orderType === 'delivery' || orderType === 'shipping') && (
         <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Truck className="h-5 w-5" />
-              Delivery Address
+              {orderType === 'delivery' ? (
+                <Truck className="h-5 w-5" />
+              ) : (
+                <Package2 className="h-5 w-5" />
+              )}
+              {orderType === 'delivery' ? 'Delivery Address' : 'Shipping Address'}
             </div>
             <Button
               type="button"

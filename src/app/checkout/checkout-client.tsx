@@ -28,7 +28,7 @@ interface CustomerPoints {
 
 export interface CheckoutData {
   paymentMethod: 'cod';
-  orderType: 'delivery' | 'pickup';
+  orderType: 'delivery' | 'pickup' | 'shipping';
   customerInfo: {
     name: string;
     email: string;
@@ -62,11 +62,18 @@ interface ShippingStatus {
   timestamp: string;
 }
 
+interface DeliveryStatus {
+  enabled: boolean;
+  message: string;
+  timestamp: string;
+}
+
 interface CheckoutClientPageProps {
   loyaltySettings: LoyaltySettings;
   customerPoints: CustomerPoints;
   orderSettings: OrderSettings;
   shippingStatus: ShippingStatus;
+  deliveryStatus: DeliveryStatus;
   user: {
     id: string;
     name?: string | null;
@@ -74,7 +81,7 @@ interface CheckoutClientPageProps {
   };
 }
 
-export function CheckoutClientPage({ loyaltySettings, customerPoints, orderSettings, shippingStatus, user }: CheckoutClientPageProps) {
+export function CheckoutClientPage({ loyaltySettings, customerPoints, orderSettings, shippingStatus, deliveryStatus, user }: CheckoutClientPageProps) {
   const router = useRouter();
   const { toast } = useToast();
   const { state, clearCartWithToast } = useCart();
@@ -90,9 +97,9 @@ export function CheckoutClientPage({ loyaltySettings, customerPoints, orderSetti
     setIsProcessing(true);
     
     try {
-      // Calculate fees
+      // Calculate fees based on order type
       const deliveryFee = data.orderType === 'delivery' ? orderSettings.deliveryFee : 0;
-      const shippingFee = orderSettings.shippingFee;
+      const shippingFee = data.orderType === 'shipping' ? orderSettings.shippingFee : 0;
       const totalWithFees = total + deliveryFee + shippingFee;
       const finalTotal = totalWithFees - (data.pointsDiscountAmount || 0);
       
@@ -181,18 +188,6 @@ export function CheckoutClientPage({ loyaltySettings, customerPoints, orderSetti
       <Header title="Checkout" />
       
       <main className="container mx-auto px-4 py-6 max-w-2xl">
-        {/* Show shipping disabled message if shipping is disabled */}
-        {!shippingStatus.enabled && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-center space-x-2 text-red-700 mb-2">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-              <span className="font-medium">Checkout Currently Unavailable</span>
-            </div>
-            <p className="text-red-600 text-sm">{shippingStatus.message}</p>
-          </div>
-        )}
 
         {isProcessing ? (
           <div className="text-center py-12 space-y-4">
@@ -205,32 +200,16 @@ export function CheckoutClientPage({ loyaltySettings, customerPoints, orderSetti
               </p>
             )}
           </div>
-        ) : shippingStatus.enabled ? (
+        ) : (
           <CheckoutFormWithData
             total={total}
             loyaltySettings={loyaltySettings}
             customerPoints={customerPoints}
             orderSettings={orderSettings}
+            shippingStatus={shippingStatus}
+            deliveryStatus={deliveryStatus}
             onSubmit={handleCheckoutSubmit}
           />
-        ) : (
-          <div className="text-center py-12 space-y-4">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto">
-              <svg className="w-8 h-8 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-semibold text-gray-900">Checkout Disabled</h2>
-            <p className="text-muted-foreground max-w-md mx-auto">
-              {shippingStatus.message}
-            </p>
-            <button
-              onClick={() => router.push('/cart')}
-              className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-            >
-              ← Back to Cart
-            </button>
-          </div>
         )}
       </main>
       <MobileNav />
