@@ -36,19 +36,20 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 # web
 
-## Twilio Voice calling (chat)
+## Daily.co voice calling (audio-only) (chat)
 
-This app supports in-browser voice calling from `/chat/*` using Twilio Voice.
+This app supports in-browser voice calling (audio-only) from `/chat/*` using Daily.co.
 
 ### Required environment variables
 
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_API_KEY`
-- `TWILIO_API_SECRET`
-- `TWILIO_TWIML_APP_SID`
+- `DAILY_API_KEY` (server-side only; do **not** expose as `NEXT_PUBLIC_*`)
 
-### Twilio Console setup
+### How it works
 
-- Create (or use) a **TwiML App**
-- Set **Voice URL** to: `https://<frontend-domain>/api/twilio/voice`
+- Client navigates to `/video?conversationId=...`
+- `/api/create-room` (server) creates/loads a **private** Daily room and generates a **meeting token**
+- The `/video` page uses `@daily-co/daily-js` to join/leave (camera disabled) and cleans up the call frame on unmount
+
+## Twilio SMS (temporarily still enabled)
+
+Phone-number OTP in registration currently uses `/api/twilio/send-sms`. The Twilio Voice/calling parts have been removed.

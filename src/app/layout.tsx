@@ -8,6 +8,7 @@ import { SessionProvider } from "@/components/providers/SessionProvider"
 import { ChatProvider } from "@/contexts/ChatContext"
 import { ThemeProvider } from "@/components/providers/ThemeProvider"
 import AuthenticatedLicenseGuard from "@/components/AuthenticatedLicenseGuard"
+import IncomingCallPopup from "@/components/IncomingCallPopup"
 
 export const metadata: Metadata = {
   title: "Store name",
@@ -30,6 +31,7 @@ export default function RootLayout({
                   <AuthenticatedLicenseGuard>
                     <Toaster />
                     <Sonner />
+                    <IncomingCallPopup />
                     {children}
                   </AuthenticatedLicenseGuard>
                 </ChatProvider>
