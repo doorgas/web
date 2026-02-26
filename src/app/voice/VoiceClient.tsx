@@ -90,7 +90,8 @@ export default function VoiceClient() {
   const updateParticipants = useCallback(() => {
     const co = callObjectRef.current;
     if (!co) return;
-    setParticipantCount(Object.keys(co.participants()).length);
+    const count = Object.keys(co.participants()).length;
+    setParticipantCount(count);
   }, []);
 
   const join = useCallback(async () => {
@@ -123,7 +124,15 @@ export default function VoiceClient() {
         setParticipantCount(0);
       });
       callObject.on('participant-joined', updateParticipants);
-      callObject.on('participant-left', updateParticipants);
+      callObject.on('participant-left', () => {
+        updateParticipants();
+        const remaining = Object.keys(callObject.participants());
+        if (remaining.length <= 1) {
+          const elapsed = joinStartRef.current ? Math.round((Date.now() - joinStartRef.current) / 1000) : 0;
+          if (callId) patchCallStatus(callId, 'ended', elapsed);
+          destroyCallObject().then(() => setStatus('idle'));
+        }
+      });
       callObject.on('error', (e: any) => setError(e?.errorMsg || e?.message || 'Call error'));
 
       callObjectRef.current = callObject;

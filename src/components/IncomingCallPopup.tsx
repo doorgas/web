@@ -2,12 +2,49 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
 import DailyIframe from '@daily-co/daily-js';
-import { Phone, PhoneOff, Mic, MicOff, X } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const POLL_INTERVAL_MS = 3000;
+
+function createRingtone() {
+  const ctx = new AudioContext();
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = 0.3;
+  gainNode.connect(ctx.destination);
+
+  let stopped = false;
+  let timeout: ReturnType<typeof setTimeout>;
+
+  function ring() {
+    if (stopped) return;
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    osc1.type = 'sine';
+    osc2.type = 'sine';
+    osc1.frequency.value = 440;
+    osc2.frequency.value = 480;
+    osc1.connect(gainNode);
+    osc2.connect(gainNode);
+    osc1.start();
+    osc2.start();
+    osc1.stop(ctx.currentTime + 0.8);
+    osc2.stop(ctx.currentTime + 0.8);
+    timeout = setTimeout(() => {
+      if (!stopped) ring();
+    }, 2000);
+  }
+
+  ring();
+  return {
+    stop() {
+      stopped = true;
+      clearTimeout(timeout);
+      ctx.close().catch(() => {});
+    },
+  };
+}
 
 type IncomingCall = {
   id: string;
@@ -42,7 +79,6 @@ function formatDuration(seconds: number) {
 
 export default function IncomingCallPopup() {
   const { data: session } = useSession();
-  const router = useRouter();
 
   // Polling state
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
@@ -137,6 +173,24 @@ export default function IncomingCallPopup() {
         setCallState('idle');
         stopTimer();
       });
+      callObject.on('participant-left', () => {
+        const remaining = Object.keys(callObject.participants());
+        if (remaining.length <= 1) {
+          const elapsed = joinStartRef.current ? Math.round((Date.now() - joinStartRef.current) / 1000) : 0;
+          if (incomingCall) {
+            patchCallStatus(incomingCall.id, 'ended', elapsed);
+            dismissedCallsRef.current.add(incomingCall.id);
+          }
+          callObject.leave().catch(() => {});
+          try { callObject.destroy(); } catch {}
+          callObjectRef.current = null;
+          stopTimer();
+          setCallState('idle');
+          setIncomingCall(null);
+          setMuted(false);
+          setDuration(0);
+        }
+      });
       callObject.on('error', (e: any) => setError(e?.errorMsg || e?.message || 'Call error'));
 
       callObjectRef.current = callObject;
@@ -178,6 +232,23 @@ export default function IncomingCallPopup() {
     co.setLocalAudio(!next);
     setMuted(next);
   }, [muted]);
+
+  // Ringtone: play while ringing, stop on accept/decline/unmount
+  const ringtoneRef = useRef<{ stop: () => void } | null>(null);
+  useEffect(() => {
+    if (callState === 'ringing') {
+      try {
+        ringtoneRef.current = createRingtone();
+      } catch {}
+    } else {
+      ringtoneRef.current?.stop();
+      ringtoneRef.current = null;
+    }
+    return () => {
+      ringtoneRef.current?.stop();
+      ringtoneRef.current = null;
+    };
+  }, [callState]);
 
   // Cleanup on unmount
   useEffect(() => {

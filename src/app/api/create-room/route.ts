@@ -105,9 +105,6 @@ export async function POST(request: NextRequest) {
           start_video_off: true,
           start_audio_off: false,
           enable_screenshare: false,
-          permissions: {
-            canSend: ['audio'],
-          },
         },
       }),
     });
