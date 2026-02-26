@@ -219,7 +219,7 @@ export default function VoiceClient() {
               </Button>
             )}
 
-            {(isActive || status === 'joining') && (
+            {(isActive || status === 'joining' || status === 'leaving') && (
               <Button
                 variant="destructive"
                 size="lg"
