@@ -43,6 +43,19 @@ function formatDuration(seconds: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+const TRANSIENT_ERROR_PATTERNS = [
+  'transport',
+  'disconnected',
+  'ice',
+  'network',
+  'not-found',
+];
+
+function isTransientError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return TRANSIENT_ERROR_PATTERNS.some((p) => lower.includes(p));
+}
+
 export default function VoiceClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -60,6 +73,7 @@ export default function VoiceClient() {
   const [muted, setMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [participantCount, setParticipantCount] = useState(0);
+  const [networkState, setNetworkState] = useState<'connected' | 'interrupted' | 'reconnecting'>('connected');
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -118,12 +132,18 @@ export default function VoiceClient() {
         updateParticipants();
         if (callId) patchCallStatus(callId, 'answered');
       });
+
       callObject.on('left-meeting', () => {
         setStatus('idle');
         stopTimer();
         setParticipantCount(0);
       });
-      callObject.on('participant-joined', updateParticipants);
+
+      callObject.on('participant-joined', () => {
+        updateParticipants();
+        setNetworkState('connected');
+      });
+
       callObject.on('participant-left', () => {
         updateParticipants();
         const remaining = Object.keys(callObject.participants());
@@ -133,7 +153,20 @@ export default function VoiceClient() {
           destroyCallObject().then(() => setStatus('idle'));
         }
       });
-      callObject.on('error', (e: any) => setError(e?.errorMsg || e?.message || 'Call error'));
+
+      callObject.on('network-connection', (ev: any) => {
+        if (ev?.action === 'connected') {
+          setNetworkState('connected');
+        } else if (ev?.action === 'interrupted') {
+          setNetworkState('interrupted');
+        }
+      });
+
+      callObject.on('error', (e: any) => {
+        const msg = e?.errorMsg || e?.message || '';
+        if (isTransientError(msg)) return;
+        setError(msg || 'Call error');
+      });
 
       callObjectRef.current = callObject;
       await callObject.join({ url, token, startVideoOff: true, startAudioOff: false });
@@ -174,6 +207,16 @@ export default function VoiceClient() {
   }, [destroyCallObject]);
 
   const isActive = status === 'joined';
+  const waitingForUser = isActive && participantCount <= 1;
+
+  function statusText() {
+    if (status === 'idle') return 'Call ended';
+    if (status === 'joining') return 'Connecting…';
+    if (status === 'leaving') return 'Ending call…';
+    if (waitingForUser) return 'Ringing… waiting for answer';
+    if (networkState === 'interrupted') return 'Reconnecting…';
+    return formatDuration(duration);
+  }
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -188,7 +231,11 @@ export default function VoiceClient() {
         <div className="flex w-full flex-col items-center gap-6 rounded-2xl border bg-card p-8 shadow-sm">
           <div
             className={`flex h-20 w-20 items-center justify-center rounded-full text-white text-2xl font-bold ${
-              isActive ? 'bg-green-500 animate-pulse' : status === 'joining' ? 'bg-yellow-500 animate-pulse' : 'bg-gray-400'
+              isActive && !waitingForUser
+                ? 'bg-green-500 animate-pulse'
+                : status === 'joining' || waitingForUser
+                  ? 'bg-yellow-500 animate-pulse'
+                  : 'bg-gray-400'
             }`}
           >
             <Phone className="h-8 w-8" />
@@ -196,12 +243,7 @@ export default function VoiceClient() {
 
           <div className="text-center">
             <div className="text-lg font-semibold">{label}</div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              {status === 'idle' && 'Call ended'}
-              {status === 'joining' && 'Connecting…'}
-              {status === 'joined' && formatDuration(duration)}
-              {status === 'leaving' && 'Ending call…'}
-            </div>
+            <div className="mt-1 text-sm text-muted-foreground">{statusText()}</div>
             {isActive && participantCount > 1 && (
               <div className="mt-1 text-xs text-muted-foreground">
                 {participantCount} in call
@@ -216,7 +258,7 @@ export default function VoiceClient() {
           )}
 
           <div className="flex items-center gap-4">
-            {isActive && (
+            {isActive && !waitingForUser && (
               <Button
                 variant={muted ? 'destructive' : 'outline'}
                 size="lg"

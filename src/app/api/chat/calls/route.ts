@@ -94,17 +94,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    // Determine caller and receiver
     const callerId = session.user.id;
-    const receiverIdCandidate = conversationData.customerId === session.user.id
+    const otherParty = conversationData.customerId === session.user.id
       ? conversationData.driverId
       : conversationData.customerId;
 
-    // Ensure receiverId is available (driver may be unassigned yet)
-    if (!receiverIdCandidate) {
-      return NextResponse.json({ error: 'No receiver assigned for this conversation yet' }, { status: 400 });
-    }
-    const receiverId = receiverIdCandidate;
+    // For support conversations (driverId is null), use 'support_team' so any admin can pick up
+    const receiverId = otherParty || 'support_team';
 
     // Check if there's already an active call in this conversation
     const activeCall = await db
@@ -113,8 +109,7 @@ export async function POST(request: NextRequest) {
       .where(
         and(
           eq(twilioCallSessions.conversationId, conversationId),
-          // Call is active if it's initiated, ringing, or answered
-          eq(twilioCallSessions.status, 'initiated')
+          eq(twilioCallSessions.status, 'ringing')
         )
       )
       .limit(1);
@@ -123,7 +118,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Call already in progress' }, { status: 400 });
     }
 
-    // Create new call session
     const callId = uuidv4();
     await db.insert(twilioCallSessions).values({
       id: callId,
@@ -131,11 +125,10 @@ export async function POST(request: NextRequest) {
       callerId,
       receiverId,
       callType,
-      status: 'initiated',
+      status: 'ringing',
       createdAt: new Date(),
     });
 
-    // Fetch the created call session
     const newCall = await db
       .select()
       .from(twilioCallSessions)

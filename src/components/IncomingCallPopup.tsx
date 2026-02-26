@@ -191,7 +191,12 @@ export default function IncomingCallPopup() {
           setDuration(0);
         }
       });
-      callObject.on('error', (e: any) => setError(e?.errorMsg || e?.message || 'Call error'));
+      callObject.on('error', (e: any) => {
+        const msg = e?.errorMsg || e?.message || '';
+        const lower = msg.toLowerCase();
+        if (['transport', 'disconnected', 'ice', 'network'].some((p) => lower.includes(p))) return;
+        setError(msg || 'Call error');
+      });
 
       callObjectRef.current = callObject;
       await callObject.join({ url, token, startVideoOff: true, startAudioOff: false });
