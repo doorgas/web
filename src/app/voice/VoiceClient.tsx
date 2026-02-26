@@ -6,11 +6,7 @@ import DailyIframe from '@daily-co/daily-js';
 import { Button } from '@/components/ui/button';
 import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
 
-type CreateRoomResponse = {
-  url: string;
-  token: string;
-  roomName?: string;
-};
+type CreateRoomResponse = { url: string; token: string; roomName?: string };
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -32,9 +28,7 @@ async function patchCallStatus(callId: string, status: string, duration?: number
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, ...(duration != null && { duration }) }),
     });
-  } catch (e) {
-    console.warn('Failed to update call status:', e);
-  }
+  } catch {}
 }
 
 function formatDuration(seconds: number) {
@@ -43,17 +37,34 @@ function formatDuration(seconds: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-const TRANSIENT_ERROR_PATTERNS = [
-  'transport',
-  'disconnected',
-  'ice',
-  'network',
-  'not-found',
-];
-
 function isTransientError(msg: string): boolean {
-  const lower = msg.toLowerCase();
-  return TRANSIENT_ERROR_PATTERNS.some((p) => lower.includes(p));
+  const l = msg.toLowerCase();
+  return ['transport', 'disconnected', 'ice', 'network', 'not-found'].some((p) => l.includes(p));
+}
+
+function attachRemoteAudio(ev: any) {
+  if (!ev?.participant || ev.participant.local) return;
+  if (!ev.track || ev.track.kind !== 'audio') return;
+  const id = `daily-audio-${ev.participant.session_id}`;
+  let el = document.getElementById(id) as HTMLAudioElement | null;
+  if (!el) {
+    el = document.createElement('audio');
+    el.id = id;
+    el.autoplay = true;
+    document.body.appendChild(el);
+  }
+  el.srcObject = new MediaStream([ev.track]);
+  el.play().catch(() => {});
+}
+
+function detachRemoteAudio(ev: any) {
+  if (!ev?.participant) return;
+  const el = document.getElementById(`daily-audio-${ev.participant.session_id}`);
+  if (el) el.remove();
+}
+
+function cleanupAllAudioEls() {
+  document.querySelectorAll('audio[id^="daily-audio-"]').forEach((el) => el.remove());
 }
 
 export default function VoiceClient() {
@@ -73,13 +84,10 @@ export default function VoiceClient() {
   const [muted, setMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [participantCount, setParticipantCount] = useState(0);
-  const [networkState, setNetworkState] = useState<'connected' | 'interrupted' | 'reconnecting'>('connected');
+  const [networkState, setNetworkState] = useState<'connected' | 'interrupted'>('connected');
 
   const stopTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   }, []);
 
   const startTimer = useCallback(() => {
@@ -92,27 +100,22 @@ export default function VoiceClient() {
   const destroyCallObject = useCallback(async () => {
     const co = callObjectRef.current;
     if (!co) return;
-    try {
-      await co.leave().catch(() => {});
-    } finally {
+    try { await co.leave().catch(() => {}); } finally {
       try { co.destroy(); } catch {}
       callObjectRef.current = null;
     }
+    cleanupAllAudioEls();
     stopTimer();
   }, [stopTimer]);
 
   const updateParticipants = useCallback(() => {
     const co = callObjectRef.current;
     if (!co) return;
-    const count = Object.keys(co.participants()).length;
-    setParticipantCount(count);
+    setParticipantCount(Object.keys(co.participants()).length);
   }, []);
 
   const join = useCallback(async () => {
-    if (!conversationId) {
-      setError('Missing conversationId.');
-      return;
-    }
+    if (!conversationId) { setError('Missing conversationId.'); return; }
     if (callObjectRef.current) return;
 
     setError(null);
@@ -121,10 +124,10 @@ export default function VoiceClient() {
     try {
       const { url, token } = await postJson<CreateRoomResponse>('/api/create-room', { conversationId });
 
-      const callObject = DailyIframe.createCallObject({
-        audioSource: true,
-        videoSource: false,
-      });
+      const callObject = DailyIframe.createCallObject();
+
+      callObject.on('track-started', attachRemoteAudio);
+      callObject.on('track-stopped', detachRemoteAudio);
 
       callObject.on('joined-meeting', () => {
         setStatus('joined');
@@ -137,6 +140,7 @@ export default function VoiceClient() {
         setStatus('idle');
         stopTimer();
         setParticipantCount(0);
+        cleanupAllAudioEls();
       });
 
       callObject.on('participant-joined', () => {
@@ -155,11 +159,8 @@ export default function VoiceClient() {
       });
 
       callObject.on('network-connection', (ev: any) => {
-        if (ev?.action === 'connected') {
-          setNetworkState('connected');
-        } else if (ev?.action === 'interrupted') {
-          setNetworkState('interrupted');
-        }
+        if (ev?.action === 'connected') setNetworkState('connected');
+        else if (ev?.action === 'interrupted') setNetworkState('interrupted');
       });
 
       callObject.on('error', (e: any) => {
@@ -170,6 +171,7 @@ export default function VoiceClient() {
 
       callObjectRef.current = callObject;
       await callObject.join({ url, token, startVideoOff: true, startAudioOff: false });
+      callObject.setLocalVideo(false);
     } catch (e: any) {
       setError(e?.message || 'Failed to join call');
       setStatus('idle');
@@ -221,23 +223,14 @@ export default function VoiceClient() {
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="mx-auto flex w-full max-w-md flex-col items-center gap-6 pt-12">
-        <button
-          onClick={() => { leave(); router.back(); }}
-          className="self-start text-sm text-muted-foreground hover:text-foreground"
-        >
+        <button onClick={() => { leave(); router.back(); }} className="self-start text-sm text-muted-foreground hover:text-foreground">
           &larr; Back
         </button>
 
         <div className="flex w-full flex-col items-center gap-6 rounded-2xl border bg-card p-8 shadow-sm">
-          <div
-            className={`flex h-20 w-20 items-center justify-center rounded-full text-white text-2xl font-bold ${
-              isActive && !waitingForUser
-                ? 'bg-green-500 animate-pulse'
-                : status === 'joining' || waitingForUser
-                  ? 'bg-yellow-500 animate-pulse'
-                  : 'bg-gray-400'
-            }`}
-          >
+          <div className={`flex h-20 w-20 items-center justify-center rounded-full text-white text-2xl font-bold ${
+            isActive && !waitingForUser ? 'bg-green-500 animate-pulse' : status === 'joining' || waitingForUser ? 'bg-yellow-500 animate-pulse' : 'bg-gray-400'
+          }`}>
             <Phone className="h-8 w-8" />
           </div>
 
@@ -245,48 +238,27 @@ export default function VoiceClient() {
             <div className="text-lg font-semibold">{label}</div>
             <div className="mt-1 text-sm text-muted-foreground">{statusText()}</div>
             {isActive && participantCount > 1 && (
-              <div className="mt-1 text-xs text-muted-foreground">
-                {participantCount} in call
-              </div>
+              <div className="mt-1 text-xs text-muted-foreground">{participantCount} in call</div>
             )}
           </div>
 
           {error && (
-            <div className="w-full rounded-md border border-destructive/40 bg-destructive/10 p-3 text-center text-sm text-destructive">
-              {error}
-            </div>
+            <div className="w-full rounded-md border border-destructive/40 bg-destructive/10 p-3 text-center text-sm text-destructive">{error}</div>
           )}
 
           <div className="flex items-center gap-4">
             {isActive && !waitingForUser && (
-              <Button
-                variant={muted ? 'destructive' : 'outline'}
-                size="lg"
-                className="h-14 w-14 rounded-full p-0"
-                onClick={toggleMute}
-                title={muted ? 'Unmute' : 'Mute'}
-              >
+              <Button variant={muted ? 'destructive' : 'outline'} size="lg" className="h-14 w-14 rounded-full p-0" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>
                 {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
               </Button>
             )}
-
             {(isActive || status === 'joining' || status === 'leaving') && (
-              <Button
-                variant="destructive"
-                size="lg"
-                className="h-14 w-14 rounded-full p-0"
-                onClick={leave}
-                disabled={status === 'leaving'}
-                title="End call"
-              >
+              <Button variant="destructive" size="lg" className="h-14 w-14 rounded-full p-0" onClick={leave} disabled={status === 'leaving'} title="End call">
                 <PhoneOff className="h-6 w-6" />
               </Button>
             )}
-
             {status === 'idle' && (
-              <Button variant="outline" onClick={() => router.back()}>
-                Go back
-              </Button>
+              <Button variant="outline" onClick={() => router.back()}>Go back</Button>
             )}
           </div>
         </div>

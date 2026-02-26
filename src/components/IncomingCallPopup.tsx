@@ -158,9 +158,20 @@ export default function IncomingCallPopup() {
       if (!res.ok) throw new Error('Failed to get room');
       const { url, token } = (await res.json()) as CreateRoomResponse;
 
-      const callObject = DailyIframe.createCallObject({
-        audioSource: true,
-        videoSource: false,
+      const callObject = DailyIframe.createCallObject();
+
+      callObject.on('track-started', (ev: any) => {
+        if (!ev?.participant || ev.participant.local) return;
+        if (!ev.track || ev.track.kind !== 'audio') return;
+        const id = `daily-audio-${ev.participant.session_id}`;
+        let el = document.getElementById(id) as HTMLAudioElement | null;
+        if (!el) { el = document.createElement('audio'); el.id = id; el.autoplay = true; document.body.appendChild(el); }
+        el.srcObject = new MediaStream([ev.track]);
+        el.play().catch(() => {});
+      });
+      callObject.on('track-stopped', (ev: any) => {
+        if (!ev?.participant) return;
+        document.getElementById(`daily-audio-${ev.participant.session_id}`)?.remove();
       });
 
       callObject.on('joined-meeting', () => {
@@ -172,6 +183,7 @@ export default function IncomingCallPopup() {
       callObject.on('left-meeting', () => {
         setCallState('idle');
         stopTimer();
+        document.querySelectorAll('audio[id^="daily-audio-"]').forEach((el) => el.remove());
       });
       callObject.on('participant-left', () => {
         const remaining = Object.keys(callObject.participants());
@@ -185,6 +197,7 @@ export default function IncomingCallPopup() {
           try { callObject.destroy(); } catch {}
           callObjectRef.current = null;
           stopTimer();
+          document.querySelectorAll('audio[id^="daily-audio-"]').forEach((el) => el.remove());
           setCallState('idle');
           setIncomingCall(null);
           setMuted(false);
@@ -200,6 +213,7 @@ export default function IncomingCallPopup() {
 
       callObjectRef.current = callObject;
       await callObject.join({ url, token, startVideoOff: true, startAudioOff: false });
+      callObject.setLocalVideo(false);
     } catch (e: any) {
       setError(e?.message || 'Failed to join call');
       setCallState('idle');
